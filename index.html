@@ -3820,6 +3820,23 @@
         };
       }
 
+      async function completeazaProduseLinii(linii, produseExistente) {
+        const idsNecesare = Array.from(
+          new Set(
+            (linii || []).filter((l) => l.produs_id).map((l) => l.produs_id),
+          ),
+        );
+        const idsExistente = new Set((produseExistente || []).map((p) => p.id));
+        const idsLipsa = idsNecesare.filter((id) => !idsExistente.has(id));
+        if (!idsLipsa.length) return produseExistente || [];
+        const { data, error } = await supa
+          .from("produse")
+          .select("*")
+          .in("id", idsLipsa);
+        if (error || !data) return produseExistente || [];
+        return [...(produseExistente || []), ...data];
+      }
+
       function stocDisponibilPentruComenzi(context, excludeLinieId) {
         const reserved = new Set(
           (context.allLinii || [])
@@ -3913,7 +3930,7 @@
           lineCount++;
           const div = document.createElement("div");
           div.className =
-            "comanda-line-row grid grid-cols-12 gap-2 items-start border rounded-lg p-2";
+            "comanda-line-row grid grid-cols-12 gap-2 items-start border rounded-lg p-2 min-w-0";
           div.style.borderColor = "var(--line)";
           const categorieOptions = CATEGORII_PRODUS.map(
             (c) => `<option value="${esc(c)}">${esc(c)}</option>`,
@@ -3943,7 +3960,8 @@
         <label class="text-[10px] text-slate-400 block mb-0.5 leading-none">Cantitate</label>
         <input type="number" min="1" value="1" class="line-cantitate ${inputBase()} text-xs px-2 text-center">
       </div>
-      <div class="col-span-1 flex justify-end pt-4"><button type="button" class="line-remove text-red-500 hover:text-red-700 text-sm" title="Șterge linia">✕</button></div>`;
+      <div class="col-span-1 flex justify-end pt-4"><button type="button" class="line-remove text-red-500 hover:text-red-700 text-sm" title="Șterge linia">✕</button></div>
+      <div class="line-stoc-info col-span-12 hidden text-xs text-slate-500 flex flex-wrap items-center gap-3 min-w-0 overflow-hidden"></div>`;
           containerEl.appendChild(div);
 
           const catSelect = div.querySelector(".line-categorie");
@@ -4017,6 +4035,11 @@
             div.querySelector(".line-marca").value = p.marca || "";
             div.querySelector(".line-model").value = p.model || "";
             div.querySelector(".line-culoare").value = p.culoare || "";
+            const infoDiv = div.querySelector(".line-stoc-info");
+            if (infoDiv) {
+              infoDiv.classList.remove("hidden");
+              infoDiv.innerHTML = `<span>C.I.V.: ${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</span><span>Preț: ${p.pret_cu_tva !== null && p.pret_cu_tva !== undefined ? fmtNum(p.pret_cu_tva) + " lei" : "—"}</span>`;
+            }
           },
           getLines() {
             return Array.from(containerEl.querySelectorAll(".comanda-line-row"))
@@ -4063,7 +4086,7 @@
 
         overlay.innerHTML = `
     <div class="flex flex-col md:flex-row gap-4 items-center md:items-start justify-center my-auto">
-      <div id="comanda-nou-card" class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md fade-in relative shrink-0">
+      <div id="comanda-nou-card" class="bg-white rounded-2xl shadow-xl p-6 fade-in relative shrink-0" style="width:56rem;max-width:calc(100vw - 3rem);transition:width .2s ease">
         <button type="button" id="comanda-close-x" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none" title="Închide">✕</button>
         <h2 class="text-lg font-bold mb-5 pr-6">Comandă nouă</h2>
         <form id="form-new-comanda" class="space-y-4">
@@ -4106,7 +4129,7 @@
         </form>
         <button type="button" id="comanda-vezi-stoc" class="mt-3 text-xs font-medium underline block" style="color:var(--teal-dark)">Vezi disponibilitate în stocul central</button>
       </div>
-      <div id="comanda-stoc-central-wrap" class="hidden bg-white rounded-2xl shadow-xl p-4 w-full max-w-md fade-in flex flex-col shrink-0">
+      <div id="comanda-stoc-central-wrap" class="hidden bg-white rounded-2xl shadow-xl p-4 fade-in flex flex-col shrink-0" style="width:56rem;max-width:calc(100vw - 3rem);transition:width .2s ease">
         <p class="text-sm font-semibold text-slate-700 mb-2">Disponibil în stocul central</p>
         <input type="text" id="comanda-stoc-central-search" class="${inputBase()} mb-2 text-xs" placeholder="Caută categorie, marcă, model, culoare...">
         <div class="grid grid-cols-3 gap-2 mb-2">
@@ -4214,14 +4237,39 @@
           );
         }
         if (veziStocBtn) {
+          function ajusteazaLatimileModalelorComanda(stocDeschis) {
+            const card = document.getElementById("comanda-nou-card");
+            const wrap = document.getElementById("comanda-stoc-central-wrap");
+            const baseRem = 56; // lățime dublă față de max-w-md (28rem), pentru modalul singur
+            const remPx = 16;
+            const marginePx = 48; // marje overlay + siguranță pe orizontală
+            if (!stocDeschis) {
+              const latimePx = Math.min(
+                baseRem * remPx,
+                window.innerWidth - marginePx,
+              );
+              card.style.width = latimePx + "px";
+              return;
+            }
+            const gapPx = 16; // gap-4 dintre cele două modale
+            const disponibilPx = window.innerWidth - marginePx - gapPx;
+            const fiecarePx = Math.max(
+              280,
+              Math.min(baseRem * remPx, disponibilPx / 2),
+            );
+            card.style.width = fiecarePx + "px";
+            wrap.style.width = fiecarePx + "px";
+          }
           veziStocBtn.addEventListener("click", () => {
             const wasHidden = stocWrap.classList.contains("hidden");
+            const card = document.getElementById("comanda-nou-card");
             if (wasHidden) {
-              const card = document.getElementById("comanda-nou-card");
               stocWrap.style.maxHeight = card.offsetHeight + "px";
+              ajusteazaLatimileModalelorComanda(true);
               stocWrap.classList.remove("hidden");
               repaintStocCentral();
             } else {
+              ajusteazaLatimileModalelorComanda(false);
               stocWrap.classList.add("hidden");
             }
           });
@@ -4456,7 +4504,15 @@
       <div class="font-medium">${esc(l.categorie || "—")}${l.marca ? " · " + esc(l.marca) : ""}${l.model ? " · " + esc(l.model) : ""}${l.culoare ? " · " + esc(l.culoare) : ""}</div>
       ${
         produs
-          ? `<div class="text-xs text-emerald-700 mt-1">Legat de produsul ${canManageStock ? `<button type="button" data-edit-produs-line="${l.id}" class="underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide și editează datele produsului">${esc(produs.id_produs)}</button>` : esc(produs.id_produs)}${produs.vin ? " · VIN " + esc(produs.vin) : ""}</div>`
+          ? `<div class="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
+        <span>C.I.V.: ${produs.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</span>
+        <span>Preț: ${produs.pret_cu_tva !== null && produs.pret_cu_tva !== undefined ? fmtNum(produs.pret_cu_tva) + " lei" : "—"}</span>
+      </div>
+      ${
+        l.status_linie === "trimis"
+          ? `<div class="text-xs text-emerald-700 mt-1">ID produs: ${canManageStock ? `<button type="button" data-edit-produs-line="${l.id}" class="underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide și editează datele produsului">${esc(produs.id_produs)}</button>` : esc(produs.id_produs)}${produs.vin ? " · VIN " + esc(produs.vin) : ""}</div>`
+          : ""
+      }`
           : ""
       }
     </div>
@@ -5069,6 +5125,7 @@
                 await onAdd({
                   categorie: l.categorie,
                   marca: l.marca,
+                  model: l.model,
                   culoare: l.culoare,
                   cantitate: 1,
                 });
@@ -5077,7 +5134,7 @@
           });
       }
 
-      function renderComandaReadonlyModal(c, lines, profiles) {
+      function renderComandaReadonlyModal(c, lines, profiles, produse) {
         const overlay = document.createElement("div");
         overlay.id = "comanda-readonly-overlay";
         overlay.className =
@@ -5102,18 +5159,34 @@
       <div class="mb-3 flex flex-wrap items-center gap-2">${statusBadge(status)}${plataBadge(c)}</div>
       <div class="space-y-2">
         ${lines
-          .map(
-            (l) => `
+          .map((l) => {
+            const produs = l.produs_id
+              ? (produse || []).find((p) => p.id === l.produs_id)
+              : null;
+            return `
         <div class="border rounded-lg p-3 flex items-center justify-between gap-3" style="border-color:var(--line)">
           <div class="text-sm">
             <div class="font-medium">${esc(l.categorie || "—")}${l.marca ? " · " + esc(l.marca) : ""}${l.model ? " · " + esc(l.model) : ""}${l.culoare ? " · " + esc(l.culoare) : ""}</div>
+            ${
+              produs
+                ? `<div class="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
+              <span>C.I.V.: ${produs.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</span>
+              <span>Preț: ${produs.pret_cu_tva !== null && produs.pret_cu_tva !== undefined ? fmtNum(produs.pret_cu_tva) + " lei" : "—"}</span>
+            </div>
+            ${
+              l.status_linie === "trimis"
+                ? `<div class="text-xs text-emerald-700 mt-1">ID produs: ${esc(produs.id_produs)}${produs.vin ? " · VIN " + esc(produs.vin) : ""}</div>`
+                : ""
+            }`
+                : ""
+            }
           </div>
           <div class="flex flex-col items-end">
             <span class="text-xs font-medium ${l.status_linie === "trimis" ? "text-emerald-700" : l.status_linie === "realocat" ? "text-red-600" : l.status_linie === "asignat" ? "text-blue-700" : "text-amber-700"}">${esc(lineStatusLabel(l.status_linie))}</span>
             ${l.status_linie === "trimis" && l.data_trimis ? `<span class="text-[10px] text-slate-400 leading-tight">${new Date(l.data_trimis).toLocaleDateString("ro-RO")}</span>` : ""}
           </div>
-        </div>`,
-          )
+        </div>`;
+          })
           .join("")}
       </div>
     </div>`;
@@ -5177,13 +5250,19 @@
           return;
         }
 
+        const produseComplete = await completeazaProduseLinii(
+          linii,
+          stocCtx.produse,
+        );
+        if (isStaleRender(myGen)) return;
+
         const magazine = (profiles || []).filter((p) => p.role === "magazin");
         const agenti = (profiles || []).filter((p) => p.role === "agent");
         const context = {
           magazine,
           agenti,
           allLinii: stocCtx.allLinii,
-          produse: stocCtx.produse,
+          produse: produseComplete,
           marci: distinctMarci([...stocCtx.produse, ...stocCtx.allLinii]),
           modele: distinctModele([...stocCtx.produse, ...stocCtx.allLinii]),
           marcaCategorieMap: buildMarcaCategorieMap(stocCtx.produse),
@@ -5355,11 +5434,17 @@
         bindStatusFilterChips(container, refresh);
         bindPaginationBar(container, pageKey, refresh);
 
+        const produseComplete = await completeazaProduseLinii(
+          myLinii,
+          stocCtx.produse,
+        );
+        if (isStaleRender(myGen)) return;
+
         const agentContext = {
           magazine: magazineToate,
           agenti: [],
           allLinii: stocCtx.allLinii,
-          produse: stocCtx.produse,
+          produse: produseComplete,
           marci,
           modele,
           marcaCategorieMap,
@@ -5471,6 +5556,11 @@
           ...stocCtx.allLinii,
         ]);
         const marcaCategorieMap = buildMarcaCategorieMap(stocCtx.produse);
+        const produseComplete = await completeazaProduseLinii(
+          myLinii,
+          stocCtx.produse,
+        );
+        if (isStaleRender(myGen)) return;
 
         const totalCount = count || 0;
         container.innerHTML = `
@@ -5520,6 +5610,7 @@
                   c,
                   (myLinii || []).filter((l) => l.comanda_id === c.id),
                   [currentProfile],
+                  produseComplete,
                 );
               });
           });
@@ -5611,6 +5702,11 @@
           ...stocCtx.allLinii,
         ]);
         const marcaCategorieMap = buildMarcaCategorieMap(stocCtx.produse);
+        const produseComplete = await completeazaProduseLinii(
+          myLinii,
+          stocCtx.produse,
+        );
+        if (isStaleRender(myGen)) return;
 
         const totalCount = count || 0;
         container.innerHTML = `
@@ -5656,6 +5752,7 @@
                   c,
                   (myLinii || []).filter((l) => l.comanda_id === c.id),
                   magazine,
+                  produseComplete,
                 );
               });
           });
