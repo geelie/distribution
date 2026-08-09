@@ -7,7 +7,7 @@
     <meta name="robots" content="noindex, nofollow" />
     <link rel="icon" type="image/png" href="assets/favicon.png?v=2" />
     <link href="./css/output.css" rel="stylesheet" />
-    <link href="./css/style.css" rel="stylesheet">
+    <link href="./css/style.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -35,11 +35,7 @@
       let currentProfile = null;
       let recoveryMode = false;
       let currentTabKey = null;
-      // Crește la fiecare schimbare de tab. Funcțiile de randare asincrone
-      // își rețin propria valoare la intrare și, după fetch-uri, verifică
-      // dacă mai sunt "cele mai recente" înainte să scrie în DOM — altfel
-      // un răspuns întârziat de la un tab părăsit ar putea scrie peste
-      // conținutul tab-ului nou (sau ar da eroare pe elemente inexistente).
+
       let renderGen = 0;
       function isStaleRender(myGen) {
         return myGen !== renderGen;
@@ -47,13 +43,6 @@
       const tabSearchTerms = {};
       let searchDebounceTimer = null;
 
-      // ---------------------------------------------------------------
-      // Cache simplu în memorie pentru tabele mici / rar modificate.
-      // Elimină re-descărcarea completă a acestor tabele la fiecare
-      // schimbare de tab (profiles, agent_magazine, hub_magazine).
-      // Se invalidează explicit după orice scriere (insert/update/delete)
-      // care le poate afecta — vezi invalidateCache().
-      // ---------------------------------------------------------------
       const CACHE_TTL_MS = 30000; // plasă de siguranță; invalidarea explicită e principalul mecanism
       const _cache = {
         profiles: { data: null, ts: 0, pending: null },
@@ -89,13 +78,6 @@
         });
       }
 
-      // ---------------------------------------------------------------
-      // Paginare server-side reutilizabilă pentru listele mari (produse,
-      // comenzi, vânzări) care altfel ar încărca tabelul întreg. Fiecare
-      // listă paginată își ține propria pagină curentă, cheia fiind
-      // tab-ul curent (currentTabKey), ca la revenirea pe tab să rămână
-      // pe aceeași pagină.
-      // ---------------------------------------------------------------
       const PAGE_SIZE = 50;
       const _pageState = {};
 
@@ -183,9 +165,6 @@
         setTimeout(() => el.remove(), 3500);
       }
 
-      // Jurnal acțiuni — înregistrează evenimente istorice pentru produse și
-      // comenzi (cine, când, ce a făcut). Nu blochează fluxul principal dacă
-      // scrierea eșuează (de ex. tabela nu a fost încă creată în Supabase).
       function poateVedeaJurnal() {
         return (
           currentProfile &&
@@ -226,9 +205,7 @@
             efectuat_de: currentUser ? currentUser.id : null,
             efectuat_de_nume: efectuatDeNume,
           });
-        } catch (e) {
-          // Jurnalizarea este auxiliară — nu întrerupem acțiunea principală.
-        }
+        } catch (e) {}
       }
       function logButtonHtml(id) {
         return `<button type="button" id="${id}" class="rounded-md px-2 py-0.5 text-[10px] font-semibold border text-slate-500 hover:bg-slate-50 hover:text-slate-700" style="border-color:var(--line)" title="Jurnal acțiuni">LOG</button>`;
@@ -321,12 +298,7 @@
           const esteAcelasiUtilizator =
             currentUser && currentUser.id === session.user.id;
           currentUser = session.user;
-          // Supabase re-emite un eveniment de sesiune (ex. la refresh de
-          // token sau la revenirea pe tab-ul browserului) fără să fie o
-          // autentificare nouă. Dacă reconstruim tot ecranul de fiecare
-          // dată (loadProfileAndRender -> renderShell -> app.innerHTML),
-          // orice fetch aflat în desfășurare pe tab-ul curent rămâne cu
-          // elementele DOM țintă șterse și pică la runda de randare.
+
           if (esteAcelasiUtilizator && currentProfile) return;
           loadProfileAndRender();
         }
@@ -923,11 +895,6 @@
         }
       }
 
-      // ---------------------------------------------------------------
-      // Pagina de start ("Acasă") — mesaj de salut + carduri statistice
-      // adaptate rolului curent. Se încarcă prima dată la pornirea
-      // aplicației (primul tab din tabsForRole pentru fiecare rol).
-      // ---------------------------------------------------------------
       function lunaCurentaRangeAcasa() {
         const now = new Date();
         const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1722,15 +1689,6 @@
         return rezultat;
       }
 
-      // ---------------------------------------------------------------
-      // Notificări modificări preț — o bulină roșie lângă ID produs
-      // (vizibilă doar pentru Admin/Super Admin) semnalează că prețul,
-      // adaosul, discountul etc. au fost editate și LOG-ul produsului
-      // nu a fost încă deschis/consultat. Se bazează pe coloana
-      // jurnal_actiuni.vazut (default false) — orice rând înregistrat
-      // de modificariPretProdus (actiune de forma `Editare "..."`)
-      // rămâne "nevăzut" până când cineva deschide LOG-ul acelui produs.
-      // ---------------------------------------------------------------
       const PREFIX_LOG_PRET = 'Editare "';
 
       async function fetchProduseCuNotificariActive(produsIds) {
@@ -1767,9 +1725,7 @@
             .eq("entitate_id", produsId)
             .ilike("actiune", `${PREFIX_LOG_PRET}%`)
             .eq("vazut", false);
-        } catch (e) {
-          // Auxiliar — nu întrerupem vizualizarea jurnalului.
-        }
+        } catch (e) {}
       }
 
       function bulinaNotificarePretHtml(produsId, notificariActive) {
@@ -2084,10 +2040,6 @@
         "adresa_facturare",
       ];
 
-      // Listă distinctă de mărci — se citește doar coloana "marca" (nu
-      // rândul întreg) pentru autocomplete; mult mai ieftin decât select("*")
-      // pe tot tabelul, dar tot scanează tabelul — dacă produse ajunge la
-      // sute de mii de rânduri, ia în calcul o funcție/vedere SQL dedicată.
       async function fetchMarciDistincte() {
         const { data } = await supa.from("produse").select("marca");
         return distinctMarci(data || []);
@@ -2185,10 +2137,6 @@
         bindPaginationBar(container, pageKey, refresh);
       }
 
-      // Stoc central: doar produsele nealocate unui magazin/vânzare directă.
-      // comanda_produse e interogat DOAR pentru id-urile produselor din
-      // pagina curentă (nu tot tabelul) — folosit doar ca să marcheze
-      // produsele deja "asignate" unei comenzi (rezervate).
       async function loadStocCentralData(pageKey) {
         const termenCautare = tabSearchTerms[currentTabKey] || "";
         const { from, to } = rangeFor(pageKey);
@@ -2361,11 +2309,6 @@
           });
       }
 
-      // ---------------------------------------------------------------
-      // Antedepozit Import — zonă de tranzit pentru produse (model, VIN,
-      // culoare) încărcate în bloc dintr-un Excel, înainte de a primi ID
-      // de produs și de a fi mutate efectiv în Depozitul central.
-      // ---------------------------------------------------------------
       const antedepozitFilters = { model: "", vin: "", culoare: "" };
 
       function buildAntedepozitQuery() {
@@ -2566,10 +2509,6 @@
         });
       }
 
-      // Import Excel pentru Antedepozit — folosește ExcelJS (deja încărcat
-      // pentru export) ca să citească fișierul direct în browser, fără a
-      // trece prin server. Antetele sunt căutate case-insensitive; coloana
-      // "SERIE MOTOR" este ignorată intenționat.
       async function importAntedepozitExcel(file) {
         const msg = document.getElementById("antedepozit-upload-msg");
         if (msg) {
@@ -2672,10 +2611,6 @@
         }
       }
 
-      // Produse trimise: produsele alocate unui magazin sau marcate
-      // "vânzare directă", nevândute încă. comenzi/comanda_produse sunt
-      // interogate doar pentru produsele din pagina curentă, ca să se poată
-      // afișa numărul comenzii de origine lângă produs.
       async function loadProduseTrimiseData(pageKey) {
         const termenCautare = tabSearchTerms[currentTabKey] || "";
         const { from, to } = rangeFor(pageKey);
@@ -2733,9 +2668,7 @@
             (liniiProduse || []).map((l) => l.comanda_id).filter(Boolean),
           ),
         );
-        // Se reia comanda_produse, de data asta după comanda_id (nu produs_id),
-        // ca modalul "comandă inițială" să arate TOATE liniile comenzii —
-        // nu doar linia produsului aflat în pagina curentă.
+
         const [{ data: linii }, { data: comenzi }] = comandaIds.length
           ? await Promise.all([
               supa
@@ -2797,12 +2730,6 @@
         bindVanzareButoane(d.produseTrimise, refresh);
       }
 
-      // Rezolvă eticheta de "Magazin" pentru un produs/comandă: dacă
-      // magazin_id-ul aparține unui cont cu rolul "magazin_hub", produsul
-      // se află încă în "Depozit HUB" (stocul temporar al hub-ului) și nu
-      // a fost alocat unui magazin, deci se afișează "Depozit HUB" în loc
-      // de numele contului hub. Se bazează pe _cache.profiles.data, deja
-      // populat de apelul getCached("profiles") din funcțiile apelante.
       function magazinLabelPentru(magazinId, magazineList, esteVanzareDirecta) {
         if (!magazinId) return esteVanzareDirecta ? "Vânzare directă" : "—";
         const m = (magazineList || []).find((x) => x.id === magazinId);
@@ -3871,12 +3798,6 @@
         return true;
       }
 
-      // Stoc central disponibil + rezervări "asignat" — folosit la
-      // crearea/revizuirea comenzilor (context.produse / context.allLinii).
-      // Interoghează doar candidații reali (stoc central nealocat, nevândut,
-      // fără vânzare directă) și liniile de comandă încă "asignat" (nu
-      // "trimis" — acelea au deja magazin_id pe produs și sunt oricum
-      // excluse de filtrul de mai jos), nu întregul istoric de produse/linii.
       async function loadStocDisponibilPentruComenzi() {
         const [
           { data: produse, error: prodErr },
@@ -3929,12 +3850,6 @@
         return "in_asteptare";
       }
 
-      // Recalculează și salvează statusul comenzii (comenzi.status) pe baza
-      // liniilor curente — apelat după orice modificare a unei linii de
-      // comandă (asignare/dezasignare/trimitere/ștergere/adăugare), ca
-      // status_comanda din DB să rămână corect fără să mai fie nevoie să
-      // recalculăm din linii la fiecare afișare a listei de comenzi.
-      // Nu suprascrie o comandă "anulata".
       async function syncComandaStatus(comandaId, lines) {
         if (!comandaId) return;
         const status = computeComandaStatus(lines || []);
@@ -5651,10 +5566,7 @@
         const magazine = (profiles || []).filter((p) =>
           magazinIds.includes(p.id),
         );
-        // Comenzile hub-ului includ atât comenzile pentru magazinele alocate,
-        // cât și cele plasate cu "Magazin: Depozit HUB" (magazin_id = contul
-        // propriu al hub-ului) — de aceea nu se mai oprește aici dacă nu are
-        // niciun magazin alocat încă.
+
         const idsComenziHub = [...magazinIds, currentUser.id];
         const [{ data: comenzi, error: comErr, count }, stocCtx] =
           await Promise.all([
@@ -5901,10 +5813,7 @@
           container.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(error.message)}</div>`;
           return;
         }
-        // Legătura produs → comandă se face după produs_id, nu după
-        // magazin_id-ul comenzii: un produs alocat din "Depozit HUB" către
-        // acest magazin a fost comandat inițial cu magazin_id = contul
-        // hub-ului, nu al acestui magazin.
+
         const produsIds = (produse || []).map((p) => p.id);
         const { data: liniiProduse, error: liniiProduseErr } = produsIds.length
           ? await supa
@@ -6092,10 +6001,6 @@
         });
       }
 
-      // Încarcă stocul unui SINGUR magazin, paginat — folosit de panourile
-      // pliabile din "Stoc magazine alocate" (Agent/Hub), care altfel ar
-      // aduce stocul complet al TUTUROR magazinelor alocate dintr-o dată,
-      // chiar dacă majoritatea panourilor rămân pliate.
       async function loadStocMagazinPagina(magazinId, pageKey, doarNevandute) {
         const { from, to } = rangeFor(pageKey);
         let q = supa
@@ -6107,11 +6012,7 @@
         if (doarNevandute) q = q.eq("vandut", false);
         const { data: produse, error, count } = await q;
         if (error) return { error };
-        // Legătura produs → comandă se face după produs_id, nu după
-        // magazin_id-ul comenzii: un produs alocat din "Depozit HUB" către
-        // acest magazin a fost comandat inițial cu magazin_id = contul
-        // hub-ului, nu al acestui magazin, așa că o căutare "comenzi pentru
-        // acest magazin" nu l-ar găsi niciodată.
+
         const produsIds = (produse || []).map((p) => p.id);
         const { data: liniiProduse, error: liniiProduseErr } = produsIds.length
           ? await supa
@@ -6181,9 +6082,6 @@
         const termenCautare = tabSearchTerms[currentTabKey] || "";
 
         if (termenCautare) {
-          // Mod căutare: rezultatele sunt deja mărginite de termenul căutat,
-          // așa că aducem potrivirile din toate magazinele deodată (ca
-          // înainte), grupate pe magazin, fără paginare per-magazin.
           const [
             { data: produse, error: prodErr },
             { data: comenzi, error: comErr },
@@ -6265,8 +6163,6 @@
           return;
         }
 
-        // Mod navigare (fără căutare): doar numărul de produse per magazin —
-        // stocul fiecărui magazin se aduce, paginat, DOAR când panoul e extins.
         const numaratori = await Promise.all(
           magazinIds.map((id) =>
             supa
@@ -6383,10 +6279,7 @@
             container.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(prodErr.message)}</div>`;
             return;
           }
-          // Legătura produs → comandă se face după produs_id, nu după
-          // magazin_id-ul comenzii (vezi nota din loadStocMagazinPagina):
-          // un produs alocat din Depozit HUB a fost comandat inițial pe
-          // contul hub-ului, nu pe magazinul curent.
+
           const produsIds = (produse || []).map((p) => p.id);
           const { data: liniiProduse, error: liniiProduseErr } =
             produsIds.length
@@ -6532,18 +6425,6 @@
         });
       }
 
-      // ---------------------------------------------------------------
-      // "Depozit HUB" — depozitul temporar al Magazin-HUB. Aici ajung
-      // produsele comenzilor plasate cu "Magazin: Depozit HUB" și
-      // trimise din Depozitul central (produse.magazin_id = id-ul
-      // contului hub). De aici, hub-ul alocă produsele către unul din
-      // magazinele proprii alocate (hub_magazine) — la alocare,
-      // produsul trece în stocul acelui magazin (magazin_id devine
-      // id-ul magazinului ales). Data de referință pentru ciclul de
-      // încărcare a bateriei (data_comenzii) NU se modifică la alocare —
-      // rămâne data intrării în Depozit HUB / plecării din depozitul
-      // central, conform cerinței.
-      // ---------------------------------------------------------------
       function renderAlocaMagazinModal(produs, magazineAlocate, onAlocat) {
         const overlay = document.createElement("div");
         overlay.id = "aloca-magazin-overlay";
@@ -7504,10 +7385,6 @@
           magazinIds.includes(p.id),
         );
 
-        // Stocul propriu din "Depozit HUB" — Magazin-HUB este responsabil
-        // de încărcarea bateriilor cât timp produsul se află aici, la fel
-        // ca orice magazin pentru stocul propriu (secțiune editabilă,
-        // separată de rezumatul/filtrul comun al magazinelor alocate).
         let bateriiQueryProprii = supa
           .from("produse")
           .select("*")
@@ -7636,11 +7513,7 @@
         container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
         const myGen = renderGen;
         const pageKey = currentTabKey;
-        // Doar coloanele folosite efectiv la calculul ciclului/afișare —
-        // nu select("*"). Statusul (verde/roșu) e derivat din dată, nu
-        // dintr-o coloană stocată, așa că tot setul de produse nealocate
-        // trebuie citit ca să fie corecte contoarele de sumar — dar la un
-        // cost mult mai mic per rând decât un select("*").
+
         let bateriiQueryAdmin = supa
           .from("produse")
           .select(
