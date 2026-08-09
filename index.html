@@ -2847,7 +2847,7 @@
       </div>
     </td>
     ${showAgent ? `<td class="px-3 py-3 text-xs">${esc(p.agent || "—")}</td>` : ""}
-    ${showMagazin ? `<td class="px-3 py-3 text-xs">${esc(magazinLabel)}</td>` : ""}
+    ${showMagazin ? `<td class="px-3 py-3 text-xs text-slate-500 adresa-cell max-w-[140px]" title="${esc(magazinLabel)}"><span class="adresa-clamp">${esc(magazinLabel)}</span></td>` : ""}
     <td class="px-3 py-3 text-xs text-slate-500 data-comenzii-cell">${p.data_comenzii ? new Date(p.data_comenzii).toLocaleDateString("ro-RO") : "—"}</td>
     <td class="px-3 py-3 text-xs">${esc(p.categorie || "—")}</td>
     <td class="px-3 py-3 text-xs">${esc(p.marca || "—")}</td>
@@ -2913,13 +2913,12 @@
           });
         }
 
-        const adresaCell = row.querySelector(".adresa-cell");
-        if (adresaCell) {
+        row.querySelectorAll(".adresa-cell").forEach((adresaCell) => {
           adresaCell.addEventListener("click", () => {
             const span = adresaCell.querySelector(".adresa-clamp");
             if (span) span.classList.toggle("adresa-expanded");
           });
-        }
+        });
       }
 
       function renderAddProductModal(
@@ -7936,14 +7935,14 @@
   <tr class="border-b last:border-0 align-top" style="border-color:var(--line)">
     <td class="px-3 py-3 text-slate-400">${nr}</td>
     <td class="px-3 py-3 font-mono text-xs">${esc(p.id_produs)}</td>
-    ${magazinLabel !== null ? `<td class="px-3 py-3 text-xs">${esc(magazinLabel)}</td>` : ""}
+    ${magazinLabel !== null ? `<td class="px-3 py-3 text-xs text-slate-500 adresa-cell max-w-[140px]" title="${esc(magazinLabel)}"><span class="adresa-clamp">${esc(magazinLabel)}</span></td>` : ""}
     <td class="px-3 py-3 text-xs text-slate-500">${p.data_vanzare ? new Date(p.data_vanzare).toLocaleDateString("ro-RO") : "—"}</td>
     <td class="px-3 py-3 text-xs">${esc(p.marca || "—")}</td>
     <td class="px-3 py-3 text-xs">${esc(p.model || "—")}</td>
     <td class="px-3 py-3 text-xs">${esc(p.culoare || "—")}</td>
     <td class="px-3 py-3 text-xs font-mono">${esc(p.vin || "—")}</td>
     <td class="px-3 py-3 text-xs">${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</td>
-    <td class="px-3 py-3 text-xs">${esc(p.client_nume || "—")}</td>
+    <td class="px-3 py-3 text-xs text-slate-500 adresa-cell max-w-[140px]" title="${esc(p.client_nume || "")}"><span class="adresa-clamp">${esc(p.client_nume || "—")}</span></td>
     <td class="px-3 py-3 text-xs text-slate-500">${esc(p.client_telefon || "—")}</td>
     <td class="px-3 py-3 text-xs text-slate-500">${esc(p.client_email || "—")}</td>
     <td class="px-3 py-3 text-xs text-slate-500 adresa-cell" style="max-width:220px" title="${esc(p.client_adresa || "")}"><span class="adresa-clamp">${esc(p.client_adresa || "—")}</span></td>
