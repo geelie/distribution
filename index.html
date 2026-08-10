@@ -937,6 +937,79 @@
     </button>`;
       }
 
+      function acasaCardEveniment(id, label, count) {
+        return `
+    <button type="button" id="${id}" class="text-left bg-white rounded-xl border p-4 fade-in ${count ? "hover:shadow-md transition-shadow cursor-pointer" : "cursor-default"}" style="border-color:var(--line)">
+      <div class="text-xs font-medium text-slate-400 mb-1">${esc(label)}</div>
+      <div class="text-2xl font-bold ${count ? "text-amber-600" : "text-slate-800"}">${count}</div>
+      ${count ? `<div class="text-xs text-slate-400 mt-1">Click pentru detalii</div>` : ""}
+    </button>`;
+      }
+
+      function cutoffZileInUrma(zile) {
+        return new Date(Date.now() - zile * 86400000).toISOString();
+      }
+
+      async function fetchProduseEvenimentRecent(
+        coloanaData,
+        coloanaScop,
+        zile,
+        scope,
+      ) {
+        if (!scope.all && !scope.ids.length) return [];
+        let q = supa
+          .from("produse")
+          .select("*")
+          .not(coloanaData, "is", null)
+          .gte(coloanaData, cutoffZileInUrma(zile))
+          .order(coloanaData, { ascending: false });
+        if (!scope.all) q = q.in(coloanaScop, scope.ids);
+        const { data, error } = await q;
+        if (error) return [];
+        return data || [];
+      }
+
+      async function renderListaEvenimentModal(titlu, produse, dataKey) {
+        const overlay = document.createElement("div");
+        overlay.id = "eveniment-produse-overlay";
+        overlay.className =
+          "fixed inset-0 z-40 flex items-center justify-center px-4 py-8 overflow-y-auto";
+        overlay.style.background = "rgba(15,20,25,0.55)";
+        const randuri = (produse || [])
+          .map((p) => {
+            const dataStr = p[dataKey]
+              ? new Date(p[dataKey]).toLocaleString("ro-RO")
+              : "—";
+            return `
+    <div class="border rounded-lg p-2.5" style="border-color:var(--line)">
+      <div class="flex items-center justify-between gap-2">
+        <span class="font-mono text-sm font-semibold">${esc(p.id_produs)}</span>
+        <span class="text-[10px] text-slate-400 shrink-0">${dataStr}</span>
+      </div>
+      <div class="text-xs text-slate-500 mt-0.5">${esc(p.marca || "—")}${p.model ? " · " + esc(p.model) : ""}${p.culoare ? " · " + esc(p.culoare) : ""}${p.vin ? " · VIN " + esc(p.vin) : ""}</div>
+    </div>`;
+          })
+          .join("");
+        overlay.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto">
+      <div class="flex items-start justify-between mb-1">
+        <h2 class="text-base font-bold">${esc(titlu)}</h2>
+        <button type="button" id="eveniment-produse-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+      </div>
+      <p class="text-sm text-slate-500 mb-3">${(produse || []).length} produs${(produse || []).length === 1 ? "" : "e"} în ultimele 15 zile.</p>
+      <div class="space-y-2 max-h-[65vh] overflow-y-auto">
+        ${randuri || `<p class="text-sm text-slate-400 text-center py-4">Niciun produs.</p>`}
+      </div>
+    </div>`;
+        document.body.appendChild(overlay);
+        document
+          .getElementById("eveniment-produse-close")
+          .addEventListener("click", () => overlay.remove());
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) overlay.remove();
+        });
+      }
+
       async function renderNotificariPretModal(produsIds, onChanged) {
         const overlay = document.createElement("div");
         overlay.id = "notificari-pret-overlay";
@@ -1261,6 +1334,26 @@
         ${acasaCardNotificariPret(notifPretIdsAcasa.length)}`;
           }
 
+          const scopeEvenimenteAcasa = await scopStatisticiRol();
+          const [produseReturnateAcasa, produseRelocateAcasa] =
+            await Promise.all([
+              fetchProduseEvenimentRecent(
+                "data_ultimului_retur",
+                "magazin_id",
+                15,
+                scopeEvenimenteAcasa,
+              ),
+              fetchProduseEvenimentRecent(
+                "data_ultimei_relocari",
+                "relocare_magazin_id_anterior",
+                15,
+                scopeEvenimenteAcasa,
+              ),
+            ]);
+          cardsHtml += `
+        ${acasaCardEveniment("acasa-card-produse-returnate", "Produse returnate (ultimele 15 zile)", produseReturnateAcasa.length)}
+        ${acasaCardEveniment("acasa-card-produse-relocate", "Produse relocate (ultimele 15 zile)", produseRelocateAcasa.length)}`;
+
           if (isStaleRender(myGen)) return;
           container.innerHTML =
             acasaHeader() +
@@ -1280,6 +1373,30 @@
                 );
               });
             }
+          }
+          const btnProduseReturnate = document.getElementById(
+            "acasa-card-produse-returnate",
+          );
+          if (btnProduseReturnate && produseReturnateAcasa.length) {
+            btnProduseReturnate.addEventListener("click", () => {
+              renderListaEvenimentModal(
+                "Produse returnate în ultimele 15 zile",
+                produseReturnateAcasa,
+                "data_ultimului_retur",
+              );
+            });
+          }
+          const btnProduseRelocate = document.getElementById(
+            "acasa-card-produse-relocate",
+          );
+          if (btnProduseRelocate && produseRelocateAcasa.length) {
+            btnProduseRelocate.addEventListener("click", () => {
+              renderListaEvenimentModal(
+                "Produse relocate în ultimele 15 zile",
+                produseRelocateAcasa,
+                "data_ultimei_relocari",
+              );
+            });
           }
         } catch (e) {
           if (isStaleRender(myGen)) return;
@@ -3588,8 +3705,11 @@
                   : p.adresa_facturare || null;
 
               if (magazinSchimbat) payload.vanzare_directa = false;
-              if (esteRetragere) payload.data_comenzii = null;
-              else if (magazinId && magazinSchimbat)
+              if (esteRetragere) {
+                payload.data_comenzii = null;
+                payload.data_ultimei_relocari = new Date().toISOString();
+                payload.relocare_magazin_id_anterior = p.magazin_id || null;
+              } else if (magazinId && magazinSchimbat)
                 payload.data_comenzii = new Date().toISOString().slice(0, 10);
             }
 
@@ -8046,6 +8166,7 @@
             factura_url: null,
             pv_predare_url: null,
             garantie_extinsa_url: null,
+            data_ultimului_retur: new Date().toISOString(),
           };
           if (produs.vanzare_directa) payload.vanzare_directa = false;
 
@@ -8304,6 +8425,8 @@
           termenPlata: "", // string numeric, gol = filtrul e ignorat
           stadiuPlata: "", // "" (Toate) | "integral" | "partial" | "neachitat"
           afiseazaTotal: false,
+          returnat: false, // buton activ/inactiv — filtrează produsele care au fost returnate
+          relocat: false, // buton activ/inactiv — filtrează produsele care au fost relocate (retragere din magazin/hub)
         };
       }
 
@@ -8436,6 +8559,12 @@
           { key: "client_adresa", label: "Adresă client" },
           { key: "garantie_label", label: "Garanție extinsă" },
           { key: "civ_label", label: "C.I.V." },
+          { key: "data_ultimului_retur", label: "Data retur" },
+          { key: "data_ultimei_relocari", label: "Data relocare" },
+          {
+            key: "magazin_relocare_anterior",
+            label: "Magazin anterior (relocare)",
+          },
         );
         return coloane;
       }
@@ -8460,6 +8589,16 @@
             return p.garantie_extinsa ? "Da" : "Nu";
           case "civ_label":
             return p.civ ? "Da" : "Nu";
+          case "data_ultimului_retur":
+            return p.data_ultimului_retur
+              ? new Date(p.data_ultimului_retur).toLocaleString("ro-RO")
+              : "—";
+          case "data_ultimei_relocari":
+            return p.data_ultimei_relocari
+              ? new Date(p.data_ultimei_relocari).toLocaleString("ro-RO")
+              : "—";
+          case "magazin_relocare_anterior":
+            return magazinLabelDin(magazine, p.relocare_magazin_id_anterior);
           case "pret_intrare":
           case "pret_vanzare":
           case "adaos":
@@ -8534,6 +8673,16 @@
           default:
             return c[key] || "—";
         }
+      }
+
+      function coloaneCuDate(coloane, randuri, getValoare) {
+        if (!randuri.length) return coloane;
+        return coloane.filter((c) =>
+          randuri.some((r) => {
+            const v = getValoare(r, c.key);
+            return v !== null && v !== undefined && v !== "" && v !== "—";
+          }),
+        );
       }
 
       function tabelStatisticiHtml(coloane, randuri, getValoare, randTotal) {
@@ -8827,6 +8976,15 @@
               <option value="nu" ${state.civ === "nu" ? "selected" : ""}>Nu</option>
             </select>
           </div>
+          <div id="stat-evenimente-wrap" class="flex items-end gap-1.5 ${state.tip === "produse" ? "" : "hidden"}">
+            <div>
+              <span class="block text-[11px] font-medium text-slate-500 mb-0.5">Evenimente</span>
+              <div class="flex gap-1">
+                <button type="button" data-bool="returnat" class="stat-bool-btn rounded-md px-2.5 py-1 text-xs font-medium border ${state.returnat ? "btn-primary" : ""}" style="border-color:var(--line)">Returnat</button>
+                <button type="button" data-bool="relocat" class="stat-bool-btn rounded-md px-2.5 py-1 text-xs font-medium border ${state.relocat ? "btn-primary" : ""}" style="border-color:var(--line)">Relocat</button>
+              </div>
+            </div>
+          </div>
           <div id="stat-total-wrap" class="flex items-end gap-1.5 ${state.tip === "produse" ? "" : "hidden"}">
             <div>
               <span class="block text-[11px] font-medium text-slate-500 mb-0.5">Linie Total</span>
@@ -8936,6 +9094,13 @@
             renderStatisticiTab(container);
           });
         });
+        container.querySelectorAll(".stat-bool-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const cheie = btn.dataset.bool;
+            state[cheie] = !state[cheie];
+            renderStatisticiTab(container);
+          });
+        });
 
         document
           .getElementById("stat-perioada")
@@ -9027,9 +9192,14 @@
             const coloane = coloaneStatisticiComenzi();
             const getValoare = (c, key) =>
               randValoareComanda(c, toateMagazinele, liniiPerComanda, key);
+            const coloaneVizibile = coloaneCuDate(
+              coloane,
+              comenzi || [],
+              getValoare,
+            );
             resultsEl.innerHTML = `
       <p class="text-sm text-slate-500 mb-2 shrink-0">${(comenzi || []).length} comand${(comenzi || []).length === 1 ? "ă" : "ă"} găsit${(comenzi || []).length === 1 ? "ă" : "e"} pentru filtrele selectate</p>
-      ${tabelStatisticiHtml(coloane, comenzi || [], getValoare)}`;
+      ${tabelStatisticiHtml(coloaneVizibile, comenzi || [], getValoare)}`;
 
             resultsEl.querySelectorAll(".stat-comanda-link").forEach((el) => {
               el.addEventListener("click", () => {
@@ -9057,7 +9227,7 @@
                     ? "Toate magazinele"
                     : "Magazinele mele",
               },
-              coloane,
+              coloane: coloaneVizibile,
               randuri: comenzi || [],
               getValoare,
             };
@@ -9116,6 +9286,15 @@
               qs = qs.eq("garantie_extinsa", false);
             if (state.civ === "da") qs = qs.eq("civ", true);
             else if (state.civ === "nu") qs = qs.eq("civ", false);
+            if (state.returnat && state.relocat) {
+              qs = qs.or(
+                "data_ultimului_retur.not.is.null,data_ultimei_relocari.not.is.null",
+              );
+            } else if (state.returnat) {
+              qs = qs.not("data_ultimului_retur", "is", null);
+            } else if (state.relocat) {
+              qs = qs.not("data_ultimei_relocari", "is", null);
+            }
             if (filtruVanzareDirecta) qs = qs.eq("vanzare_directa", true);
             if (orFilter) qs = qs.or(orFilter);
             return qs;
@@ -9149,13 +9328,18 @@
           const coloane = coloaneStatisticiProduse(esteAdmin);
           const getValoare = (p, key) =>
             randValoareProdus(p, toateMagazinele, key);
+          const coloaneVizibile = coloaneCuDate(
+            coloane,
+            produse || [],
+            getValoare,
+          );
           const randTotal =
             state.afiseazaTotal && (produse || []).length
-              ? calculeazaRandTotalProduse(coloane, produse || [])
+              ? calculeazaRandTotalProduse(coloaneVizibile, produse || [])
               : null;
           resultsEl.innerHTML = `
       <p class="text-sm text-slate-500 mb-2 shrink-0">${(produse || []).length} produs${(produse || []).length === 1 ? "" : "e"} găsit${(produse || []).length === 1 ? "" : "e"} pentru filtrele selectate</p>
-      ${tabelStatisticiHtml(coloane, produse || [], getValoare, randTotal)}`;
+      ${tabelStatisticiHtml(coloaneVizibile, produse || [], getValoare, randTotal)}`;
 
           ultimulRaport = {
             meta: {
@@ -9168,7 +9352,7 @@
                   ? "Toate magazinele"
                   : "Magazinele mele",
             },
-            coloane,
+            coloane: coloaneVizibile,
             randuri: produse || [],
             getValoare,
             randTotal,
