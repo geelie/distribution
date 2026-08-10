@@ -2733,9 +2733,24 @@
           "fixed inset-0 z-40 flex items-center justify-center px-4 py-8 overflow-y-auto";
         overlay.style.background = "rgba(15,20,25,0.55)";
 
-        function randListaHtml() {
+        let cautareVerificare = "";
+
+        function itemiVizibili() {
+          const q = cautareVerificare.trim().toLowerCase();
           return itemiValizi
             .filter((it) => antedepozitSelectie.has(String(it.id)))
+            .filter((it) => {
+              if (!q) return true;
+              return (
+                (it.model || "").toLowerCase().includes(q) ||
+                (it.vin || "").toLowerCase().includes(q) ||
+                (it.culoare || "").toLowerCase().includes(q)
+              );
+            });
+        }
+
+        function randListaHtml() {
+          return itemiVizibili()
             .map(
               (it) => `
       <div class="border rounded-lg p-2.5 flex items-center justify-between gap-2" style="border-color:var(--line)" data-verificare-row="${it.id}">
@@ -2749,19 +2764,54 @@
             .join("");
         }
 
+        function bindDeselectButtons() {
+          overlay.querySelectorAll(".verificare-deselect").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              antedepozitSelectie.delete(btn.dataset.id);
+              if (!antedepozitSelectie.size) {
+                overlay.remove();
+                refreshLista();
+                return;
+              }
+              actualizeazaLista();
+            });
+          });
+        }
+
+        function actualizeazaLista() {
+          const n = antedepozitSelectie.size;
+          const listaEl = overlay.querySelector("#verifica-selectie-lista");
+          const countEl = overlay.querySelector("#verifica-selectie-count");
+          const mutaBtn = overlay.querySelector("#btn-muta-toate-dc");
+          if (listaEl) {
+            listaEl.innerHTML =
+              randListaHtml() ||
+              `<p class="text-sm text-slate-400 text-center py-4">Niciun produs găsit.</p>`;
+            bindDeselectButtons();
+          }
+          if (countEl) {
+            countEl.textContent = `${n} produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}. Elimină din listă produsele bifate din greșeală.`;
+          }
+          if (mutaBtn) {
+            mutaBtn.textContent = `Mută toate în Depozitul central (${n})`;
+            mutaBtn.disabled = !n;
+          }
+        }
+
         function randareModal() {
           const n = antedepozitSelectie.size;
           overlay.innerHTML = `
-    <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto">
-      <div class="flex items-start justify-between mb-1">
+    <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto flex flex-col" style="max-height:85vh">
+      <div class="flex items-start justify-between mb-1 shrink-0">
         <h2 class="text-base font-bold">Verifică selecția</h2>
         <button type="button" id="verifica-selectie-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
       </div>
-      <p class="text-sm text-slate-500 mb-3">${n} produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}. Elimină din listă produsele bifate din greșeală.</p>
-      <div id="verifica-selectie-lista" class="space-y-2 max-h-[55vh] overflow-y-auto">
+      <p id="verifica-selectie-count" class="text-sm text-slate-500 mb-3 shrink-0">${n} produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}. Elimină din listă produsele bifate din greșeală.</p>
+      <input type="text" id="verifica-selectie-cauta" placeholder="Caută în selecție după model, VIN sau culoare..." autocomplete="off" value="${esc(cautareVerificare)}" class="${inputBase()} mb-3 shrink-0">
+      <div id="verifica-selectie-lista" class="space-y-2 overflow-y-auto pr-1" style="max-height:55vh">
         ${randListaHtml() || `<p class="text-sm text-slate-400 text-center py-4">Niciun produs selectat.</p>`}
       </div>
-      <div class="flex justify-center pt-4">
+      <div class="flex justify-center pt-4 shrink-0">
         <button type="button" id="btn-muta-toate-dc" class="btn-primary rounded-lg py-2 px-6 text-sm" ${n ? "" : "disabled"}>Mută toate în Depozitul central (${n})</button>
       </div>
     </div>`;
@@ -2773,16 +2823,12 @@
               refreshLista();
             });
 
-          overlay.querySelectorAll(".verificare-deselect").forEach((btn) => {
-            btn.addEventListener("click", () => {
-              antedepozitSelectie.delete(btn.dataset.id);
-              if (!antedepozitSelectie.size) {
-                overlay.remove();
-                refreshLista();
-                return;
-              }
-              randareModal();
-            });
+          bindDeselectButtons();
+
+          const cautaInput = overlay.querySelector("#verifica-selectie-cauta");
+          cautaInput.addEventListener("input", () => {
+            cautareVerificare = cautaInput.value;
+            actualizeazaLista();
           });
 
           overlay
