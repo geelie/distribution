@@ -2427,6 +2427,7 @@
       }
 
       const antedepozitFilters = { model: "", vin: "", culoare: "" };
+      const antedepozitSelectie = new Set();
 
       function buildAntedepozitQuery() {
         let q = supa.from("antedepozit_import").select("*", { count: "exact" });
@@ -2495,6 +2496,10 @@
       <input type="text" id="antedepozit-search-vin" placeholder="Caută după serie șasiu (VIN)..." autocomplete="off" value="${esc(antedepozitFilters.vin)}" class="${inputBase()} font-mono">
       <input type="text" id="antedepozit-search-culoare" placeholder="Caută după culoare..." autocomplete="off" value="${esc(antedepozitFilters.culoare)}" class="${inputBase()}">
     </div>
+    <div class="flex items-center justify-between gap-3 mb-3 bg-slate-50 rounded-lg px-3 py-2 border" style="border-color:var(--line)">
+      <p id="antedepozit-selectie-count" class="text-sm text-slate-600"><span class="font-semibold">${antedepozitSelectie.size}</span> produs${antedepozitSelectie.size === 1 ? "" : "e"} selectat${antedepozitSelectie.size === 1 ? "" : "e"}</p>
+      <button type="button" id="btn-antedepozit-verifica-selectie" class="rounded-lg px-4 py-2 text-sm font-medium border ${antedepozitSelectie.size ? "btn-primary" : "text-slate-400 cursor-not-allowed"}" style="border-color:var(--line)" ${antedepozitSelectie.size ? "" : "disabled"}>Verifică selecția</button>
+    </div>
     <p id="antedepozit-upload-msg" class="text-xs text-slate-400 mb-2"></p>
     ${renderAntedepozitTableHtml(d.itemi, getPageState(pageKey).page * PAGE_SIZE, profileById)}
     ${paginationBarHtml(pageKey, d.totalCount)}`;
@@ -2504,6 +2509,78 @@
         d.itemi.forEach((item) =>
           bindAntedepozitRow(item, agentiList, marci, modele, refresh),
         );
+
+        function actualizeazaBaraSelectie() {
+          const countEl = document.getElementById("antedepozit-selectie-count");
+          if (countEl) {
+            countEl.innerHTML = `<span class="font-semibold">${antedepozitSelectie.size}</span> produs${antedepozitSelectie.size === 1 ? "" : "e"} selectat${antedepozitSelectie.size === 1 ? "" : "e"}`;
+          }
+          const verificaBtn = document.getElementById(
+            "btn-antedepozit-verifica-selectie",
+          );
+          if (verificaBtn) {
+            verificaBtn.disabled = !antedepozitSelectie.size;
+            verificaBtn.classList.toggle(
+              "btn-primary",
+              !!antedepozitSelectie.size,
+            );
+            verificaBtn.classList.toggle(
+              "text-slate-400",
+              !antedepozitSelectie.size,
+            );
+            verificaBtn.classList.toggle(
+              "cursor-not-allowed",
+              !antedepozitSelectie.size,
+            );
+          }
+          const selectAllBox = document.getElementById(
+            "antedepozit-select-all",
+          );
+          if (selectAllBox) {
+            selectAllBox.checked =
+              d.itemi.length > 0 &&
+              d.itemi.every((it) => antedepozitSelectie.has(String(it.id)));
+          }
+        }
+
+        container.querySelectorAll(".antedepozit-row-check").forEach((cb) => {
+          cb.checked = antedepozitSelectie.has(cb.dataset.id);
+          cb.addEventListener("change", () => {
+            if (cb.checked) antedepozitSelectie.add(cb.dataset.id);
+            else antedepozitSelectie.delete(cb.dataset.id);
+            actualizeazaBaraSelectie();
+          });
+        });
+
+        const selectAllBox = document.getElementById("antedepozit-select-all");
+        if (selectAllBox) {
+          selectAllBox.checked =
+            d.itemi.length > 0 &&
+            d.itemi.every((it) => antedepozitSelectie.has(String(it.id)));
+          selectAllBox.addEventListener("change", () => {
+            container
+              .querySelectorAll(".antedepozit-row-check")
+              .forEach((cb) => {
+                cb.checked = selectAllBox.checked;
+                if (selectAllBox.checked)
+                  antedepozitSelectie.add(cb.dataset.id);
+                else antedepozitSelectie.delete(cb.dataset.id);
+              });
+            actualizeazaBaraSelectie();
+          });
+        }
+
+        document
+          .getElementById("btn-antedepozit-verifica-selectie")
+          .addEventListener("click", () => {
+            renderVerificaSelectieAntedepozitModal(refresh).catch((e) => {
+              toast(
+                "Eroare la deschiderea verificării selecției: " +
+                  (e && e.message ? e.message : String(e)),
+                true,
+              );
+            });
+          });
 
         bindPaginationBar(container, pageKey, refresh);
 
@@ -2552,6 +2629,7 @@
       <table class="min-w-full text-sm">
         <thead>
           <tr>
+            <th class="px-3 py-2 text-left"><input type="checkbox" id="antedepozit-select-all" class="w-4 h-4"></th>
             <th class="px-3 py-2 text-left font-semibold text-slate-500">Nr.Crt</th>
             <th class="px-3 py-2 text-left font-semibold text-slate-500">Model</th>
             <th class="px-3 py-2 text-left font-semibold text-slate-500">Serie șasiu (VIN)</th>
@@ -2570,6 +2648,7 @@
               const autorLabel = autor ? autor.nume || autor.email : "—";
               return `
           <tr data-antedepozit-row="${p.id}">
+            <td class="px-3 py-3"><input type="checkbox" class="antedepozit-row-check w-4 h-4" data-id="${p.id}"></td>
             <td class="px-3 py-3 text-slate-500">${(offset || 0) + idx + 1}</td>
             <td class="px-3 py-3">${esc(p.model || "—")}</td>
             <td class="px-3 py-3 font-mono text-xs">${esc(p.vin || "—")}</td>
@@ -2624,6 +2703,415 @@
             modele,
           );
         });
+      }
+
+      async function renderVerificaSelectieAntedepozitModal(refreshLista) {
+        const idsSelectate = Array.from(antedepozitSelectie);
+        if (!idsSelectate.length) return;
+        const { data: itemi, error } = await supa
+          .from("antedepozit_import")
+          .select("*")
+          .in("id", idsSelectate)
+          .order("created_at", { ascending: true });
+        if (error) {
+          toast(
+            "Eroare la încărcarea produselor selectate: " + error.message,
+            true,
+          );
+          return;
+        }
+        // Elimină din selecție eventualele ID-uri care nu mai există (ex: mutate deja individual).
+        const itemiValizi = itemi || [];
+        const idsValide = new Set(itemiValizi.map((it) => String(it.id)));
+        idsSelectate.forEach((id) => {
+          if (!idsValide.has(id)) antedepozitSelectie.delete(id);
+        });
+
+        const overlay = document.createElement("div");
+        overlay.id = "verifica-selectie-overlay";
+        overlay.className =
+          "fixed inset-0 z-40 flex items-center justify-center px-4 py-8 overflow-y-auto";
+        overlay.style.background = "rgba(15,20,25,0.55)";
+
+        function randListaHtml() {
+          return itemiValizi
+            .filter((it) => antedepozitSelectie.has(String(it.id)))
+            .map(
+              (it) => `
+      <div class="border rounded-lg p-2.5 flex items-center justify-between gap-2" style="border-color:var(--line)" data-verificare-row="${it.id}">
+        <div class="text-xs text-slate-600">
+          <span class="font-semibold">${esc(it.model || "—")}</span>
+          <span class="text-slate-400"> · VIN ${esc(it.vin || "—")} · ${esc(it.culoare || "—")}</span>
+        </div>
+        <button type="button" class="verificare-deselect text-slate-400 hover:text-red-600 text-lg leading-none shrink-0" data-id="${it.id}" title="Elimină din selecție">✕</button>
+      </div>`,
+            )
+            .join("");
+        }
+
+        function randareModal() {
+          const n = antedepozitSelectie.size;
+          overlay.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto">
+      <div class="flex items-start justify-between mb-1">
+        <h2 class="text-base font-bold">Verifică selecția</h2>
+        <button type="button" id="verifica-selectie-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+      </div>
+      <p class="text-sm text-slate-500 mb-3">${n} produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}. Elimină din listă produsele bifate din greșeală.</p>
+      <div id="verifica-selectie-lista" class="space-y-2 max-h-[55vh] overflow-y-auto">
+        ${randListaHtml() || `<p class="text-sm text-slate-400 text-center py-4">Niciun produs selectat.</p>`}
+      </div>
+      <div class="flex justify-center pt-4">
+        <button type="button" id="btn-muta-toate-dc" class="btn-primary rounded-lg py-2 px-6 text-sm" ${n ? "" : "disabled"}>Mută toate în Depozitul central (${n})</button>
+      </div>
+    </div>`;
+
+          overlay
+            .querySelector("#verifica-selectie-close")
+            .addEventListener("click", () => {
+              overlay.remove();
+              refreshLista();
+            });
+
+          overlay.querySelectorAll(".verificare-deselect").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              antedepozitSelectie.delete(btn.dataset.id);
+              if (!antedepozitSelectie.size) {
+                overlay.remove();
+                refreshLista();
+                return;
+              }
+              randareModal();
+            });
+          });
+
+          overlay
+            .querySelector("#btn-muta-toate-dc")
+            .addEventListener("click", () => {
+              const itemiDeMutat = itemiValizi.filter((it) =>
+                antedepozitSelectie.has(String(it.id)),
+              );
+              renderBulkAddProductModal(itemiDeMutat, () => {
+                overlay.remove();
+                refreshLista();
+              });
+            });
+        }
+
+        randareModal();
+        document.body.appendChild(overlay);
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) {
+            overlay.remove();
+            refreshLista();
+          }
+        });
+      }
+
+      function renderBulkAddProductModal(itemiDeMutat, onSaved) {
+        const overlay = document.createElement("div");
+        overlay.id = "bulk-add-produs-overlay";
+        overlay.className =
+          "fixed inset-0 z-40 flex items-center justify-center px-4 py-8 overflow-y-auto";
+        overlay.style.background = "rgba(15,20,25,0.55)";
+
+        const n = itemiDeMutat.length;
+        let itemiRamasi = itemiDeMutat.slice();
+        const categorieOptions = CATEGORII_PRODUS.map(
+          (c) => `<option value="${esc(c)}">${esc(c)}</option>`,
+        ).join("");
+
+        overlay.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto">
+      <div class="flex items-start justify-between mb-1">
+        <h2 class="text-base font-bold">Adaugă produs nou</h2>
+        <button type="button" id="bulk-add-produs-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+      </div>
+      <p class="text-sm text-slate-500 mb-3">Se aplică pentru <span class="font-semibold">${n}</span> produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}.</p>
+      <form id="form-bulk-add-produs" class="space-y-2.5">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            ${produsFieldLabel("ID produs")}
+            <input type="text" value="Se generează automat" disabled class="${produsInputBase()} bg-slate-50 text-slate-400">
+          </div>
+          <div>
+            ${produsFieldLabel("VIN")}
+            <input type="text" disabled class="${produsInputBase()} bg-slate-50 text-slate-400" placeholder="Din antedepozit, per produs">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            ${produsFieldLabel("Agent")}
+            <input type="text" disabled class="${produsInputBase()} bg-slate-50 text-slate-400" placeholder="Se completează individual">
+          </div>
+          <div>
+            ${produsFieldLabel("Categorie produs")}
+            <select id="bulk-add-categorie" class="${produsInputBase()}">
+              <option value="">Necompletat (per produs, ulterior)</option>
+              ${categorieOptions}
+              <option value="__alta__">Altă categorie</option>
+            </select>
+            <div id="bulk-add-categorie-alta-wrap" class="hidden flex items-center gap-1">
+              <input type="text" id="bulk-add-categorie-alta" class="${produsInputBase()}" placeholder="Specifică">
+              <button type="button" id="bulk-add-categorie-alta-back" class="text-slate-400 hover:text-slate-600 text-xs shrink-0" title="Alege din listă">↺</button>
+            </div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>${produsFieldLabel("Marcă")}<input type="text" id="bulk-add-marca" class="${produsInputBase()}" placeholder="Comun pentru toate (opțional)" autocomplete="off"></div>
+          <div>
+            ${produsFieldLabel("Model")}
+            <input type="text" disabled class="${produsInputBase()} bg-slate-50 text-slate-400" placeholder="Din antedepozit, per produs">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            ${produsFieldLabel("Culoare")}
+            <input type="text" disabled class="${produsInputBase()} bg-slate-50 text-slate-400" placeholder="Din antedepozit, per produs">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>${produsFieldLabel("Preț de intrare (fără TVA)")}<input type="number" step="0.01" id="bulk-add-pret-intrare" class="${produsInputBase()} price-field"></div>
+          <div>${produsFieldLabel("Preț vânzare (fără TVA)")}<input type="number" step="0.01" id="bulk-add-pret-vanzare" class="${produsInputBase()} price-field"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
+          <div>${produsFieldLabel("Adaos")}<input type="number" step="0.01" id="bulk-add-adaos" class="${produsInputBase()} calc-field font-semibold"></div>
+          <div>${produsFieldLabel("Alte costuri (fără TVA)")}<input type="number" step="0.01" id="bulk-add-alte-costuri" class="${produsInputBase()} price-field"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
+          <div>${produsFieldLabel("Total(fără TVA)")}<input type="number" step="0.01" id="bulk-add-total" class="${produsInputBase()} calc-field font-semibold"></div>
+          <div>${produsFieldLabel("Preț cu TVA")}<input type="number" step="0.01" id="bulk-add-tva" class="${produsInputBase()} calc-field font-semibold"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>${produsFieldLabel("Preț Recomandat")}<input type="number" step="0.01" id="bulk-add-pret-recomandat" class="${produsInputBase()}"></div>
+          <div>
+            <div class="flex items-center justify-between mb-0.5">
+              <label class="block text-[11px] font-medium text-slate-600">Discount</label>
+              <div class="flex gap-1">
+                <button type="button" data-tip="suma" class="bulk-add-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border btn-primary" style="border-color:var(--line)">Sumă</button>
+                <button type="button" data-tip="procent" class="bulk-add-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border" style="border-color:var(--line)">%</button>
+              </div>
+            </div>
+            <input type="number" step="0.01" min="0" id="bulk-add-discount" class="${produsInputBase()}">
+            <input type="hidden" id="bulk-add-discount-tip" value="suma">
+          </div>
+        </div>
+        <div>
+          <div class="flex items-center justify-between">
+            <label class="block text-[11px] font-medium text-slate-600">C.I.V.</label>
+            <div class="flex gap-1">
+              <button type="button" data-civ="nu" class="bulk-add-civ-btn rounded-md px-2.5 py-1 text-xs font-medium border btn-primary" style="border-color:var(--line)">Nu</button>
+              <button type="button" data-civ="da" class="bulk-add-civ-btn rounded-md px-2.5 py-1 text-xs font-medium border" style="border-color:var(--line)">Da</button>
+            </div>
+          </div>
+          <input type="hidden" id="bulk-add-civ" value="nu">
+        </div>
+        <p class="text-xs text-slate-400"></p>
+        <div class="flex justify-center pt-1">
+          <button type="submit" class="btn-primary rounded-lg py-2 px-8 text-sm">Mută toate în Depozitul central</button>
+        </div>
+        <p id="bulk-add-produs-msg" class="text-sm text-center"></p>
+      </form>
+    </div>`;
+        document.body.appendChild(overlay);
+
+        document
+          .getElementById("bulk-add-produs-close")
+          .addEventListener("click", () => overlay.remove());
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) overlay.remove();
+        });
+
+        const catSelect = document.getElementById("bulk-add-categorie");
+        const catAltaWrap = document.getElementById(
+          "bulk-add-categorie-alta-wrap",
+        );
+        const catAlta = document.getElementById("bulk-add-categorie-alta");
+        catSelect.addEventListener("change", () => {
+          if (catSelect.value === "__alta__") {
+            catSelect.classList.add("hidden");
+            catAltaWrap.classList.remove("hidden");
+            catAlta.value = "";
+            catAlta.focus();
+          }
+        });
+        document
+          .getElementById("bulk-add-categorie-alta-back")
+          .addEventListener("click", () => {
+            catAltaWrap.classList.add("hidden");
+            catSelect.classList.remove("hidden");
+            catSelect.value = "";
+            catAlta.value = "";
+          });
+
+        const addIntrare = document.getElementById("bulk-add-pret-intrare");
+        const addVanzare = document.getElementById("bulk-add-pret-vanzare");
+        const addAlte = document.getElementById("bulk-add-alte-costuri");
+        const addAdaos = document.getElementById("bulk-add-adaos");
+        const addTotal = document.getElementById("bulk-add-total");
+        const addTva = document.getElementById("bulk-add-tva");
+        const addDiscount = document.getElementById("bulk-add-discount");
+        const addDiscountTip = document.getElementById("bulk-add-discount-tip");
+        const { updateTotalTva: addUpdateTotalTva } = attachPriceAutoCalc({
+          intrareInput: addIntrare,
+          vanzareInput: addVanzare,
+          adaosInput: addAdaos,
+          alteInput: addAlte,
+          totalInput: addTotal,
+          tvaInput: addTva,
+          discountInput: addDiscount,
+          discountTipInput: addDiscountTip,
+        });
+
+        overlay
+          .querySelectorAll(".bulk-add-discount-tip-btn")
+          .forEach((btn) => {
+            btn.addEventListener("click", () => {
+              addDiscountTip.value = btn.dataset.tip;
+              overlay
+                .querySelectorAll(".bulk-add-discount-tip-btn")
+                .forEach((b) => b.classList.toggle("btn-primary", b === btn));
+              addUpdateTotalTva();
+            });
+          });
+
+        const addCiv = document.getElementById("bulk-add-civ");
+        overlay.querySelectorAll(".bulk-add-civ-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            addCiv.value = btn.dataset.civ;
+            overlay
+              .querySelectorAll(".bulk-add-civ-btn")
+              .forEach((b) => b.classList.toggle("btn-primary", b === btn));
+          });
+        });
+
+        document
+          .getElementById("form-bulk-add-produs")
+          .addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const msg = document.getElementById("bulk-add-produs-msg");
+            const btn = e.target.querySelector('button[type="submit"]');
+
+            const categorieVal = !catAltaWrap.classList.contains("hidden")
+              ? catAlta.value.trim()
+              : catSelect.value && catSelect.value !== "__alta__"
+                ? catSelect.value
+                : "";
+            const marcaVal = document
+              .getElementById("bulk-add-marca")
+              .value.trim();
+
+            const intrare = parseFloat(addIntrare.value) || null;
+            const vanzare = parseFloat(addVanzare.value) || null;
+            const alte = parseFloat(addAlte.value) || 0;
+            const adaos = addAdaos.value.trim()
+              ? parseFloat(addAdaos.value)
+              : null;
+            const total = addTotal.value.trim()
+              ? parseFloat(addTotal.value)
+              : null;
+            const cuTva = addTva.value.trim() ? parseFloat(addTva.value) : null;
+            const pretRecomandat = document
+              .getElementById("bulk-add-pret-recomandat")
+              .value.trim()
+              ? parseFloat(
+                  document.getElementById("bulk-add-pret-recomandat").value,
+                )
+              : null;
+            const discountVal = addDiscount.value.trim()
+              ? parseFloat(addDiscount.value)
+              : 0;
+            const civVal = addCiv.value === "da";
+
+            btn.disabled = true;
+            btn.textContent = "Se salvează...";
+            msg.className = "text-sm text-center text-slate-400";
+            const listaDeProcesat = itemiRamasi.slice();
+            const nCurent = listaDeProcesat.length;
+            msg.textContent = `Se adaugă produsele (0/${nCurent})...`;
+
+            const produseNoi = [];
+            const erori = [];
+            const itemiEsuati = [];
+            for (let i = 0; i < listaDeProcesat.length; i++) {
+              const item = listaDeProcesat[i];
+              let produsNou = null;
+              let error = null;
+              for (let incercare = 0; incercare < 5; incercare++) {
+                const idProdus = generateProductId();
+                const rezultat = await supa
+                  .from("produse")
+                  .insert({
+                    id_produs: idProdus,
+                    agent: null,
+                    categorie: categorieVal || null,
+                    marca: marcaVal || null,
+                    model: item.model || null,
+                    culoare: item.culoare || null,
+                    vin: item.vin || null,
+                    pret_intrare: intrare,
+                    pret_vanzare: vanzare,
+                    adaos,
+                    alte_costuri: alte,
+                    total_fara_tva: total,
+                    pret_cu_tva: cuTva,
+                    pret_recomandat: pretRecomandat,
+                    discount: discountVal,
+                    discount_tip: addDiscountTip.value,
+                    civ: civVal,
+                    created_by: currentUser.id,
+                  })
+                  .select()
+                  .single();
+                error = rezultat.error;
+                produsNou = rezultat.data;
+                const esteDuplicatId =
+                  error &&
+                  (error.code === "23505" ||
+                    /duplicate key/i.test(error.message || "")) &&
+                  /id_produs/i.test(error.message || "");
+                if (!error || !esteDuplicatId) break;
+                // ID produs generat coincide cu unul existent — se reîncearcă cu alt ID.
+              }
+
+              if (error) {
+                erori.push(
+                  `${item.model || item.vin || item.id}: ${error.message}`,
+                );
+                itemiEsuati.push(item);
+                msg.textContent = `Se adaugă produsele (${i + 1}/${nCurent})...`;
+                continue;
+              }
+
+              await supa.from("antedepozit_import").delete().eq("id", item.id);
+              antedepozitSelectie.delete(String(item.id));
+              inregistreazaLog(
+                "produs",
+                produsNou.id,
+                "Mutat din Antedepozit Import (mutare multiplă)",
+                `Model: ${item.model || "—"} · VIN: ${item.vin || "—"} · Culoare: ${item.culoare || "—"}`,
+              );
+              produseNoi.push(produsNou);
+              msg.textContent = `Se adaugă produsele (${i + 1}/${nCurent})...`;
+            }
+
+            itemiRamasi = itemiEsuati;
+
+            if (erori.length) {
+              msg.className = "text-sm text-center text-red-600";
+              msg.textContent = `${produseNoi.length} produse adăugate, ${erori.length} eșuate — se reîncearcă doar produsele eșuate: ${erori.join("; ")}`;
+              btn.disabled = false;
+              btn.textContent = `Reîncearcă produsele eșuate (${itemiRamasi.length})`;
+              if (produseNoi.length) onSaved();
+              return;
+            }
+
+            overlay.remove();
+            toast(
+              `${produseNoi.length} produse adăugate cu succes în Depozitul central.`,
+            );
+            onSaved();
+          });
       }
 
       async function importAntedepozitExcel(file) {
