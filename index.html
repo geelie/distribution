@@ -3930,13 +3930,15 @@
           lineCount++;
           const div = document.createElement("div");
           div.className =
-            "comanda-line-row grid grid-cols-12 gap-2 items-start border rounded-lg p-2 min-w-0";
+            "comanda-line-row grid gap-1 items-start border rounded-lg p-1 min-w-0";
           div.style.borderColor = "var(--line)";
+          div.style.gridTemplateColumns =
+            "1.3fr 1.05fr 1.05fr 1fr .8fr 1.05fr .75fr auto";
           const categorieOptions = CATEGORII_PRODUS.map(
             (c) => `<option value="${esc(c)}">${esc(c)}</option>`,
           ).join("");
           div.innerHTML = `
-      <div class="col-span-2">
+      <div>
         <select class="line-categorie ${inputBase()} text-xs">
           <option value="">Categorie...</option>
           ${categorieOptions}
@@ -3947,21 +3949,22 @@
           <button type="button" class="line-categorie-alta-back text-slate-400 hover:text-slate-600 text-xs shrink-0" title="Alege din listă">↺</button>
         </div>
       </div>
-      <div class="col-span-2 relative">
+      <div class="relative min-w-0">
         <input type="text" class="line-marca ${inputBase()} text-xs" placeholder="Marcă" autocomplete="off">
         <div class="line-marca-suggestions agent-suggestions hidden absolute z-10 left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg max-h-32 overflow-y-auto text-xs" style="border-color:var(--line)"></div>
       </div>
-      <div class="col-span-2 relative">
+      <div class="relative min-w-0">
         <input type="text" class="line-model ${inputBase()} text-xs" placeholder="Model" autocomplete="off">
         <div class="line-model-suggestions agent-suggestions hidden absolute z-10 left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg max-h-32 overflow-y-auto text-xs" style="border-color:var(--line)"></div>
       </div>
-      <div class="col-span-3"><input type="text" class="line-culoare ${inputBase()} text-xs" placeholder="Culoare"></div>
-      <div class="col-span-2">
-        <label class="text-[10px] text-slate-400 block mb-0.5 leading-none">Cantitate</label>
+      <div class="min-w-0"><input type="text" class="line-culoare ${inputBase()} text-xs" placeholder="Culoare"></div>
+      <div class="line-civ text-[10px] text-slate-400 pt-2 truncate" title="C.I.V.">—</div>
+      <div class="line-pret text-[10px] text-slate-400 pt-2 truncate" title="Preț cu TVA">—</div>
+      <div class="min-w-0">
+        <label class="text-[10px] text-slate-400 block mb-0.5 leading-none">Cant.</label>
         <input type="number" min="1" value="1" class="line-cantitate ${inputBase()} text-xs px-2 text-center">
       </div>
-      <div class="col-span-1 flex justify-end pt-4"><button type="button" class="line-remove text-red-500 hover:text-red-700 text-sm" title="Șterge linia">✕</button></div>
-      <div class="line-stoc-info col-span-12 hidden text-xs text-slate-500 flex flex-wrap items-center gap-3 min-w-0 overflow-hidden"></div>`;
+      <div class="flex justify-end pt-4"><button type="button" class="line-remove text-red-500 hover:text-red-700 text-sm" title="Șterge linia">✕</button></div>`;
           containerEl.appendChild(div);
 
           const catSelect = div.querySelector(".line-categorie");
@@ -4035,10 +4038,20 @@
             div.querySelector(".line-marca").value = p.marca || "";
             div.querySelector(".line-model").value = p.model || "";
             div.querySelector(".line-culoare").value = p.culoare || "";
-            const infoDiv = div.querySelector(".line-stoc-info");
-            if (infoDiv) {
-              infoDiv.classList.remove("hidden");
-              infoDiv.innerHTML = `<span>C.I.V.: ${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</span><span>Preț: ${p.pret_cu_tva !== null && p.pret_cu_tva !== undefined ? fmtNum(p.pret_cu_tva) + " lei" : "—"}</span>`;
+            const civCell = div.querySelector(".line-civ");
+            if (civCell) {
+              civCell.classList.remove("text-slate-400");
+              civCell.innerHTML = p.civ
+                ? '<span class="text-indigo-700 font-semibold">CIV: Da</span>'
+                : '<span class="text-slate-400">CIV: Nu</span>';
+            }
+            const pretCell = div.querySelector(".line-pret");
+            if (pretCell) {
+              pretCell.classList.remove("text-slate-400");
+              pretCell.textContent =
+                p.pret_cu_tva !== null && p.pret_cu_tva !== undefined
+                  ? fmtNum(p.pret_cu_tva) + " lei"
+                  : "—";
             }
           },
           getLines() {
@@ -4086,11 +4099,11 @@
 
         overlay.innerHTML = `
     <div class="flex flex-col md:flex-row gap-4 items-center md:items-start justify-center my-auto">
-      <div id="comanda-nou-card" class="bg-white rounded-2xl shadow-xl p-6 fade-in relative shrink-0" style="width:56rem;max-width:calc(100vw - 3rem);transition:width .2s ease">
+      <div id="comanda-nou-card" class="bg-white rounded-2xl shadow-xl p-6 fade-in relative shrink-0" style="width:56rem;max-width:calc(100vw - 3rem);height:43rem;max-height:calc(100vh - 4rem);display:flex;flex-direction:column;transition:width .2s ease">
         <button type="button" id="comanda-close-x" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none" title="Închide">✕</button>
-        <h2 class="text-lg font-bold mb-5 pr-6">Comandă nouă</h2>
-        <form id="form-new-comanda" class="space-y-4">
-          <div class="space-y-3">
+        <h2 class="text-lg font-bold mb-3 pr-6 shrink-0">Comandă nouă</h2>
+        <form id="form-new-comanda" class="space-y-3" style="flex:1 1 auto;min-height:0;overflow:hidden;display:flex;flex-direction:column">
+          <div class="grid ${mode === "admin" ? "grid-cols-3" : "grid-cols-2"} gap-3 shrink-0">
             <div>
               ${fieldLabel("Magazin")}
               <select id="comanda-magazin" class="${inputBase()}" required>
@@ -4111,28 +4124,30 @@
             </div>`
                 : ""
             }
+            <div>
+              ${fieldLabel("Termen de plată (zile)")}
+              <input type="number" id="comanda-termen-plata" min="0" step="1" class="${inputBase()}" placeholder="ex: 30">
+            </div>
           </div>
-          <div>
+          <div style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column">
             ${fieldLabel("Produse cerute")}
-            <div id="comanda-lines" class="space-y-2"></div>
-            <button type="button" id="comanda-add-line" class="mt-2 text-xs font-medium underline" style="color:var(--teal-dark)">+ Adaugă produs</button>
+            <div id="comanda-lines-scroll" class="overflow-y-auto pr-1" style="flex:1 1 auto;min-height:0">
+              <div id="comanda-lines" class="space-y-0.5"></div>
+            </div>
+            <button type="button" id="comanda-add-line" class="mt-1 text-xs font-medium underline shrink-0" style="color:var(--teal-dark)">+ Adaugă produs</button>
           </div>
-          <div class="max-w-[10rem]">
-            ${fieldLabel("Termen de plată (zile)")}
-            <input type="number" id="comanda-termen-plata" min="0" step="1" class="${inputBase()}" placeholder="ex: 30">
-          </div>
-          <div>${fieldLabel("Observații (opțional)")}<textarea id="comanda-observatii" rows="2" class="${inputBase()}"></textarea></div>
-          <div class="flex justify-center pt-1">
+          <div class="shrink-0">${fieldLabel("Observații (opțional)")}<textarea id="comanda-observatii" rows="1" class="${inputBase()}"></textarea></div>
+          <div class="flex justify-center pt-1 shrink-0">
             <button type="submit" class="btn-primary rounded-lg py-2.5 px-8 text-sm">Trimite comanda</button>
           </div>
-          <p id="comanda-msg" class="text-sm text-center"></p>
+          <p id="comanda-msg" class="text-sm text-center shrink-0"></p>
         </form>
-        <button type="button" id="comanda-vezi-stoc" class="mt-3 text-xs font-medium underline block" style="color:var(--teal-dark)">Vezi disponibilitate în stocul central</button>
+        <button type="button" id="comanda-vezi-stoc" class="mt-2 text-xs font-medium underline block shrink-0" style="color:var(--teal-dark)">Vezi disponibilitate în stocul central</button>
       </div>
-      <div id="comanda-stoc-central-wrap" class="hidden bg-white rounded-2xl shadow-xl p-4 fade-in flex flex-col shrink-0" style="width:56rem;max-width:calc(100vw - 3rem);transition:width .2s ease">
-        <p class="text-sm font-semibold text-slate-700 mb-2">Disponibil în stocul central</p>
-        <input type="text" id="comanda-stoc-central-search" class="${inputBase()} mb-2 text-xs" placeholder="Caută categorie, marcă, model, culoare...">
-        <div class="grid grid-cols-3 gap-2 mb-2">
+      <div id="comanda-stoc-central-wrap" class="hidden bg-white rounded-2xl shadow-xl p-4 fade-in flex flex-col shrink-0" style="width:56rem;max-width:calc(100vw - 3rem);height:43rem;max-height:calc(100vh - 4rem);transition:width .2s ease">
+        <p class="text-sm font-semibold text-slate-700 mb-2 shrink-0">Disponibil în stocul central</p>
+        <input type="text" id="comanda-stoc-central-search" class="${inputBase()} mb-2 text-xs shrink-0" placeholder="Caută categorie, marcă, model, culoare...">
+        <div class="grid grid-cols-3 gap-2 mb-2 shrink-0">
           <input type="text" id="comanda-stoc-central-filtru-marca" class="${inputBase()} text-xs" placeholder="Filtrează marcă">
           <input type="text" id="comanda-stoc-central-filtru-model" class="${inputBase()} text-xs" placeholder="Filtrează model">
           <input type="text" id="comanda-stoc-central-filtru-culoare" class="${inputBase()} text-xs" placeholder="Filtrează culoare">
@@ -4499,20 +4514,19 @@
                 ? "text-blue-700"
                 : "text-amber-700";
         return `
-  <div class="border rounded-lg p-3 flex items-center justify-between gap-3 flex-wrap" style="border-color:var(--line)" data-linie="${l.id}">
-    <div class="text-sm">
-      <div class="font-medium">${esc(l.categorie || "—")}${l.marca ? " · " + esc(l.marca) : ""}${l.model ? " · " + esc(l.model) : ""}${l.culoare ? " · " + esc(l.culoare) : ""}</div>
-      ${
-        produs
-          ? `<div class="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
-        <span>C.I.V.: ${produs.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</span>
-        <span>Preț: ${produs.pret_cu_tva !== null && produs.pret_cu_tva !== undefined ? fmtNum(produs.pret_cu_tva) + " lei" : "—"}</span>
+  <div class="border rounded-lg p-2 flex items-center justify-between flex-wrap" style="border-color:var(--line);gap:.25rem .75rem" data-linie="${l.id}">
+    <div class="text-sm min-w-0">
+      <div class="font-medium flex items-center flex-wrap gap-2">
+        <span>${esc(l.categorie || "—")}${l.marca ? " · " + esc(l.marca) : ""}${l.model ? " · " + esc(l.model) : ""}${l.culoare ? " · " + esc(l.culoare) : ""}</span>
+        ${
+          produs
+            ? `<span class="text-xs text-slate-500 font-normal">C.I.V.: ${produs.civ ? '<span class="text-indigo-700 font-semibold">Da</span>' : '<span class="text-slate-400">Nu</span>'} · Preț: ${produs.pret_cu_tva !== null && produs.pret_cu_tva !== undefined ? fmtNum(produs.pret_cu_tva) + " lei" : "—"}</span>`
+            : ""
+        }
       </div>
       ${
-        l.status_linie === "trimis"
-          ? `<div class="text-xs text-emerald-700 mt-1">ID produs: ${canManageStock ? `<button type="button" data-edit-produs-line="${l.id}" class="underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide și editează datele produsului">${esc(produs.id_produs)}</button>` : esc(produs.id_produs)}${produs.vin ? " · VIN " + esc(produs.vin) : ""}</div>`
-          : ""
-      }`
+        produs && l.status_linie === "trimis"
+          ? `<div class="text-xs text-emerald-700 mt-0.5">ID produs: ${canManageStock ? `<button type="button" data-edit-produs-line="${l.id}" class="underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide și editează datele produsului">${esc(produs.id_produs)}</button>` : esc(produs.id_produs)}${produs.vin ? " · VIN " + esc(produs.vin) : ""}</div>`
           : ""
       }
     </div>
@@ -4714,7 +4728,9 @@
       <p class="text-sm text-slate-500 mb-1">Magazin: <strong>${esc(magazinLabel)}</strong> · Agent: ${esc(c.agent || "—")}</p>
       <p class="text-xs text-slate-400 mb-1">Creat la: ${c.created_at ? new Date(c.created_at).toLocaleDateString("ro-RO") : "—"} · Termen de plată: ${c.termen_plata ? c.termen_plata + " zile" : "—"}</p>
       ${c.observatii ? `<p class="text-xs text-slate-400 mb-3">Observații: ${esc(c.observatii)}</p>` : ""}
-      <div id="comanda-lines-detail" class="space-y-2 my-4"></div>
+      <div id="comanda-lines-detail-scroll" class="overflow-y-auto my-3" style="max-height:22rem">
+        <div id="comanda-lines-detail" class="space-y-0.5"></div>
+      </div>
       <div id="comanda-adauga-produs-wrap">
       ${
         canManageLines
@@ -5157,27 +5173,27 @@
       <p class="text-sm text-slate-500 mb-1">Magazin: <strong>${esc(magazinLabel)}</strong> · Agent: ${esc(c.agent || "—")}</p>
       <p class="text-xs text-slate-400 mb-1">Creat la: ${c.created_at ? new Date(c.created_at).toLocaleDateString("ro-RO") : "—"} · Termen de plată: ${c.termen_plata ? c.termen_plata + " zile" : "—"}</p>
       <div class="mb-3 flex flex-wrap items-center gap-2">${statusBadge(status)}${plataBadge(c)}</div>
-      <div class="space-y-2">
+      <div id="comanda-readonly-lines-scroll" class="overflow-y-auto" style="max-height:22rem">
+      <div class="space-y-0.5">
         ${lines
           .map((l) => {
             const produs = l.produs_id
               ? (produse || []).find((p) => p.id === l.produs_id)
               : null;
             return `
-        <div class="border rounded-lg p-3 flex items-center justify-between gap-3" style="border-color:var(--line)">
-          <div class="text-sm">
-            <div class="font-medium">${esc(l.categorie || "—")}${l.marca ? " · " + esc(l.marca) : ""}${l.model ? " · " + esc(l.model) : ""}${l.culoare ? " · " + esc(l.culoare) : ""}</div>
-            ${
-              produs
-                ? `<div class="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
-              <span>C.I.V.: ${produs.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</span>
-              <span>Preț: ${produs.pret_cu_tva !== null && produs.pret_cu_tva !== undefined ? fmtNum(produs.pret_cu_tva) + " lei" : "—"}</span>
+        <div class="border rounded-lg p-2 flex items-center justify-between flex-wrap" style="border-color:var(--line);gap:.25rem .75rem">
+          <div class="text-sm min-w-0">
+            <div class="font-medium flex items-center flex-wrap gap-2">
+              <span>${esc(l.categorie || "—")}${l.marca ? " · " + esc(l.marca) : ""}${l.model ? " · " + esc(l.model) : ""}${l.culoare ? " · " + esc(l.culoare) : ""}</span>
+              ${
+                produs
+                  ? `<span class="text-xs text-slate-500 font-normal">C.I.V.: ${produs.civ ? '<span class="text-indigo-700 font-semibold">Da</span>' : '<span class="text-slate-400">Nu</span>'} · Preț: ${produs.pret_cu_tva !== null && produs.pret_cu_tva !== undefined ? fmtNum(produs.pret_cu_tva) + " lei" : "—"}</span>`
+                  : ""
+              }
             </div>
             ${
-              l.status_linie === "trimis"
-                ? `<div class="text-xs text-emerald-700 mt-1">ID produs: ${esc(produs.id_produs)}${produs.vin ? " · VIN " + esc(produs.vin) : ""}</div>`
-                : ""
-            }`
+              produs && l.status_linie === "trimis"
+                ? `<div class="text-xs text-emerald-700 mt-0.5">ID produs: ${esc(produs.id_produs)}${produs.vin ? " · VIN " + esc(produs.vin) : ""}</div>`
                 : ""
             }
           </div>
@@ -5188,6 +5204,7 @@
         </div>`;
           })
           .join("")}
+      </div>
       </div>
     </div>`;
         document.body.appendChild(overlay);
