@@ -1286,12 +1286,14 @@
             const sapteZileInUrma = new Date(
               Date.now() - 7 * 86400000,
             ).toISOString();
+            const azi = new Date().toISOString().slice(0, 10);
             const [
               stocRes,
               trimiseRes,
               comenziRes,
               vanduteRes,
               antedepozitRes,
+              termenDepasitRes,
             ] = await Promise.all([
               supa
                 .from("produse")
@@ -1317,6 +1319,11 @@
               supa
                 .from("antedepozit_import")
                 .select("id", { count: "exact", head: true }),
+              supa
+                .from("comenzi")
+                .select("id", { count: "exact", head: true })
+                .or("stadiu_plata.is.null,stadiu_plata.eq.partial")
+                .lt("data_limita_plata", azi),
             ]);
             const vandute = vanduteRes.data || [];
             const valoareVandute = vandute.reduce(
@@ -1331,6 +1338,7 @@
         ${acasaCard({ label: "Comenzi active", value: comenziRes.count ?? 0, tabKey: "comenzi" })}
         ${acasaCard({ label: "Vânzări luna aceasta", value: `${fmtNum(valoareVandute)} lei`, sub: `${vandute.length} produse`, colorClass: "text-emerald-600", tabKey: "vandute" })}
         ${acasaCard({ label: "Produse în antedepozit import", value: antedepozitRes.count ?? 0, tabKey: "antedepozit-import" })}
+        ${acasaCard({ label: "Comenzi cu termen depășit", value: termenDepasitRes.count ?? 0, colorClass: termenDepasitRes.count ? "text-red-600" : "text-slate-800", tabKey: "comenzi" })}
         ${acasaCardNotificariPret(notifPretIdsAcasa.length)}`;
           }
 
@@ -4363,6 +4371,55 @@
         return `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${cls}">${esc(plataStadiuLabel(c))}</span>`;
       }
 
+      // Punct unic de calcul pentru evoluția termenului de plată asumat la crearea comenzii.
+      // Contorizarea se oprește la achitat_integral_la (momentul achitării integrale),
+      // altfel rulează până azi. Returnează { stare, zile } unde stare este una din:
+      // "fara_termen" | "in_termen" | "depasit" | "achitat_in_termen" | "achitat_intarziat".
+      function statusTermenPlata(c) {
+        if (!c.termen_plata || !c.data_limita_plata)
+          return { stare: "fara_termen", zile: 0 };
+        const referinta =
+          c.stadiu_plata === "integral" && c.achitat_integral_la
+            ? new Date(c.achitat_integral_la)
+            : new Date();
+        const limita = new Date(c.data_limita_plata + "T00:00:00");
+        const zile = Math.floor((referinta - limita) / 86400000);
+        if (c.stadiu_plata === "integral") {
+          return zile > 0
+            ? { stare: "achitat_intarziat", zile }
+            : { stare: "achitat_in_termen", zile: 0 };
+        }
+        return zile > 0
+          ? { stare: "depasit", zile }
+          : { stare: "in_termen", zile: 0 };
+      }
+
+      const TERMEN_PLATA_STARE_LABEL = {
+        fara_termen: "Fără termen asumat",
+        in_termen: "În termen",
+        depasit: "Termen depășit",
+        achitat_in_termen: "Achitat în termen",
+        achitat_intarziat: "Achitat cu întârziere",
+      };
+
+      function termenPlataBadge(c) {
+        const st = statusTermenPlata(c);
+        if (st.stare === "fara_termen" || st.stare === "in_termen") return "";
+        const cls =
+          st.stare === "depasit"
+            ? "bg-red-50 text-red-600"
+            : st.stare === "achitat_intarziat"
+              ? "bg-orange-50 text-orange-600"
+              : "bg-emerald-50 text-emerald-700";
+        const text =
+          st.stare === "depasit"
+            ? `Depășit cu ${st.zile} zi${st.zile === 1 ? "" : "le"}`
+            : st.stare === "achitat_intarziat"
+              ? `Achitat cu întârziere (${st.zile} zi${st.zile === 1 ? "" : "le"})`
+              : TERMEN_PLATA_STARE_LABEL[st.stare];
+        return ` <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${cls}">${esc(text)}</span>`;
+      }
+
       const COMANDA_FILTER_STATUSES = [
         { key: "in_asteptare", label: "În așteptare" },
         { key: "partial_onorata", label: "Parțial onorată" },
@@ -4989,14 +5046,18 @@
             const termenPlataVal = document
               .getElementById("comanda-termen-plata")
               .value.trim();
+            const termenPlataZile = termenPlataVal
+              ? parseInt(termenPlataVal, 10)
+              : null;
             const numarComandaPayload = {
               magazin_id: esteVanzareDirecta ? null : magazinId,
               vanzare_directa: esteVanzareDirecta,
               agent: agentVal,
               creat_de: currentUser.id,
               status: "in_asteptare",
-              termen_plata: termenPlataVal
-                ? parseInt(termenPlataVal, 10)
+              termen_plata: termenPlataZile,
+              data_limita_plata: termenPlataZile
+                ? adaugaZileData(astaziISO(), termenPlataZile)
                 : null,
               observatii:
                 document.getElementById("comanda-observatii").value.trim() ||
@@ -5067,6 +5128,7 @@
     </div>
     <div class="flex items-center gap-2 flex-wrap">
       ${statusBadge(status)}
+      ${termenPlataBadge(c)}
       ${plataBadge(c)}
       <button data-open-comanda="${c.id}" class="rounded-md px-3 py-1.5 text-xs font-semibold border" style="border-color:var(--line)">Deschide</button>
     </div>
@@ -5380,7 +5442,7 @@
         <button id="comanda-detail-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
       </div>
       <p class="text-sm text-slate-500 mb-1">Magazin: <strong>${esc(magazinLabel)}</strong> · Agent: ${esc(c.agent || "—")}</p>
-      <p class="text-xs text-slate-400 mb-1">Creat la: ${c.created_at ? new Date(c.created_at).toLocaleDateString("ro-RO") : "—"} · Termen de plată: ${c.termen_plata ? c.termen_plata + " zile" : "—"}</p>
+      <p class="text-xs text-slate-400 mb-1">Creat la: ${c.created_at ? new Date(c.created_at).toLocaleDateString("ro-RO") : "—"} · Termen de plată: ${c.termen_plata ? c.termen_plata + " zile" : "—"}${termenPlataBadge(c)}</p>
       ${c.observatii ? `<p class="text-xs text-slate-400 mb-3">Observații: ${esc(c.observatii)}</p>` : ""}
       <div id="comanda-lines-detail-scroll" class="overflow-y-auto my-3" style="max-height:22rem">
         <div id="comanda-lines-detail" class="space-y-0.5"></div>
@@ -5714,6 +5776,12 @@
                 suma_achitata:
                   stadiuPlataSelectat === "partial" ? sumaVal : null,
                 detalii_plata: detaliiVal,
+                achitat_integral_la:
+                  stadiuPlataSelectat === "integral"
+                    ? c.stadiu_plata === "integral"
+                      ? c.achitat_integral_la
+                      : new Date().toISOString()
+                    : null,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", c.id);
@@ -5825,7 +5893,7 @@
         <button id="comanda-readonly-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
       </div>
       <p class="text-sm text-slate-500 mb-1">Magazin: <strong>${esc(magazinLabel)}</strong> · Agent: ${esc(c.agent || "—")}</p>
-      <p class="text-xs text-slate-400 mb-1">Creat la: ${c.created_at ? new Date(c.created_at).toLocaleDateString("ro-RO") : "—"} · Termen de plată: ${c.termen_plata ? c.termen_plata + " zile" : "—"}</p>
+      <p class="text-xs text-slate-400 mb-1">Creat la: ${c.created_at ? new Date(c.created_at).toLocaleDateString("ro-RO") : "—"} · Termen de plată: ${c.termen_plata ? c.termen_plata + " zile" : "—"}${termenPlataBadge(c)}</p>
       <div class="mb-3 flex flex-wrap items-center gap-2">${statusBadge(status)}${plataBadge(c)}</div>
       <div id="comanda-readonly-lines-scroll" class="overflow-y-auto" style="max-height:22rem">
       <div class="space-y-0.5">
@@ -8958,6 +9026,7 @@
           civ: "", // "" (Toate) | "da" | "nu"
           termenPlata: "", // string numeric, gol = filtrul e ignorat
           stadiuPlata: "", // "" (Toate) | "integral" | "partial" | "neachitat"
+          stadiuTermen: "", // "" (Toate) | "depasit" | "achitat_intarziat"
           afiseazaTotal: false,
           returnat: false, // buton activ/inactiv — filtrează produsele care au fost returnate
           relocat: false, // buton activ/inactiv — filtrează produsele care au fost relocate (retragere din magazin/hub)
@@ -9180,7 +9249,9 @@
           { key: "status_label", label: "Status" },
           { key: "created_at_label", label: "Data creării" },
           { key: "termen_plata_label", label: "Termen de plată" },
+          { key: "data_limita_plata_label", label: "Data limită plată" },
           { key: "stadiu_plata_label", label: "Stadiu plată" },
+          { key: "stadiu_termen_label", label: "Stadiu termen" },
           { key: "nr_produse", label: "Nr. produse" },
           { key: "observatii", label: "Observații" },
         ];
@@ -9200,13 +9271,89 @@
               : "—";
           case "termen_plata_label":
             return c.termen_plata ? c.termen_plata + " zile" : "—";
+          case "data_limita_plata_label":
+            return c.data_limita_plata
+              ? new Date(c.data_limita_plata + "T00:00:00").toLocaleDateString(
+                  "ro-RO",
+                )
+              : "—";
           case "stadiu_plata_label":
             return plataStadiuLabel(c);
+          case "stadiu_termen_label": {
+            const st = statusTermenPlata(c);
+            if (st.stare === "fara_termen" || st.stare === "in_termen")
+              return TERMEN_PLATA_STARE_LABEL[st.stare];
+            return `${TERMEN_PLATA_STARE_LABEL[st.stare]} (${st.zile} zile)`;
+          }
           case "nr_produse":
             return String((liniiPerComanda.get(c.id) || []).length);
           default:
             return c[key] || "—";
         }
+      }
+
+      // Agregă comenzile deja filtrate (depășit / achitat cu întârziere) pe magazin/hub,
+      // pentru evidența magazinelor/hub-urilor care nu respectă termenele de plată asumate.
+      function calculeazaTopMagazine(comenzi, magazine) {
+        const harta = new Map(); // cheie (magazinId sau "vanzare_directa") -> { label, nrComenzi, zileTotal }
+        (comenzi || []).forEach((c) => {
+          const st = statusTermenPlata(c);
+          if (st.stare !== "depasit" && st.stare !== "achitat_intarziat")
+            return;
+          const cheie = c.vanzare_directa
+            ? "vanzare_directa"
+            : c.magazin_id || "necunoscut";
+          const label = c.vanzare_directa
+            ? "Vânzare directă"
+            : magazinLabelDin(magazine, c.magazin_id);
+          const cur = harta.get(cheie) || { label, nrComenzi: 0, zileTotal: 0 };
+          cur.nrComenzi += 1;
+          cur.zileTotal += st.zile || 0;
+          harta.set(cheie, cur);
+        });
+        return [...harta.entries()]
+          .map(([magazinId, v]) => ({
+            magazinId,
+            magazin: v.label,
+            nrComenzi: v.nrComenzi,
+            zileMedii: Math.round(v.zileTotal / v.nrComenzi),
+          }))
+          .sort((a, b) => b.nrComenzi - a.nrComenzi);
+      }
+
+      function topMagazineHtml(top) {
+        if (!top.length) return "";
+        return `
+      <div class="bg-white rounded-xl border mb-3" style="border-color:var(--line)">
+        <button type="button" id="top-magazine-toggle" class="w-full flex items-center gap-1 px-4 pt-3 pb-2 text-sm font-semibold text-slate-700">
+          <span id="top-magazine-toggle-icon">+</span> Top magazine/hub — comenzi cu întârziere la plată (${top.length})
+        </button>
+        <div id="top-magazine-body" class="hidden">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-slate-500 border-b" style="border-color:var(--line)">
+              <th class="px-4 py-2 font-medium w-10">#</th>
+              <th class="px-4 py-2 font-medium">Magazin / Hub</th>
+              <th class="px-4 py-2 font-medium">Comenzi</th>
+              <th class="px-4 py-2 font-medium">Întârziere medie</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${top
+              .map(
+                (r, i) => `
+            <tr class="border-b last:border-0 top-magazin-row cursor-pointer hover:bg-slate-50" style="border-color:var(--line)" data-top-magazin-id="${esc(r.magazinId)}">
+              <td class="px-4 py-2 text-slate-400">${i + 1}</td>
+              <td class="px-4 py-2 font-medium">${esc(r.magazin)}</td>
+              <td class="px-4 py-2">${r.nrComenzi} comand${r.nrComenzi === 1 ? "ă" : "ă"}</td>
+              <td class="px-4 py-2">${r.zileMedii} zi${r.zileMedii === 1 ? "" : "le"}</td>
+            </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+        </div>
+      </div>`;
       }
 
       function coloaneCuDate(coloane, randuri, getValoare) {
@@ -9463,6 +9610,14 @@
               <option value="neachitat" ${state.stadiuPlata === "neachitat" ? "selected" : ""}>Neachitat</option>
             </select>
           </div>
+          <div id="stat-stadiu-termen-wrap" class="w-40 ${state.tip === "comenzi" ? "" : "hidden"}">
+            ${statLabel("Termen de plată — respectare")}
+            <select id="stat-stadiu-termen" class="${statInput()}">
+              <option value="" ${state.stadiuTermen === "" ? "selected" : ""}>Toate</option>
+              <option value="depasit" ${state.stadiuTermen === "depasit" ? "selected" : ""}>Termen depășit (neachitat)</option>
+              <option value="achitat_intarziat" ${state.stadiuTermen === "achitat_intarziat" ? "selected" : ""}>Achitat cu întârziere</option>
+            </select>
+          </div>
           <div id="stat-categorie-wrap" class="w-32 ${state.tip === "produse" ? "" : "hidden"}">
             ${statLabel("Categorie")}
             <select id="stat-categorie" class="${statInput()}">
@@ -9696,6 +9851,16 @@
               q = q.is("stadiu_plata", null);
             else if (state.stadiuPlata)
               q = q.eq("stadiu_plata", state.stadiuPlata);
+            const aziStr = new Date().toISOString().slice(0, 10);
+            if (state.stadiuTermen === "depasit") {
+              q = q
+                .or("stadiu_plata.is.null,stadiu_plata.eq.partial")
+                .lt("data_limita_plata", aziStr);
+            } else if (state.stadiuTermen === "achitat_intarziat") {
+              q = q
+                .eq("stadiu_plata", "integral")
+                .not("achitat_integral_la", "is", null);
+            }
             const orFilter = buildSearchOrFilter(termen, [
               "numar_comanda",
               "agent",
@@ -9704,10 +9869,16 @@
             if (orFilter) q = q.or(orFilter);
             q = q.order("created_at", { ascending: false });
 
-            const { data: comenzi, error } = await q;
+            let { data: comenzi, error } = await q;
             if (error) {
               resultsEl.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(error.message)}</div>`;
               return;
+            }
+            // Rafinare exactă client-side (statusTermenPlata acoperă și cazul "achitat exact la limită", care nu e "întârziat")
+            if (state.stadiuTermen) {
+              comenzi = (comenzi || []).filter(
+                (c) => statusTermenPlata(c).stare === state.stadiuTermen,
+              );
             }
             const comenziIds = (comenzi || []).map((c) => c.id);
             const { data: linii } = comenziIds.length
@@ -9731,9 +9902,41 @@
               comenzi || [],
               getValoare,
             );
+            const arataTopMagazine =
+              esteAdmin &&
+              ["depasit", "achitat_intarziat"].includes(state.stadiuTermen) &&
+              !state.magazinId;
+            const topMagazine = arataTopMagazine
+              ? calculeazaTopMagazine(comenzi || [], toateMagazinele)
+              : [];
             resultsEl.innerHTML = `
       <p class="text-sm text-slate-500 mb-2 shrink-0">${(comenzi || []).length} comand${(comenzi || []).length === 1 ? "ă" : "ă"} găsit${(comenzi || []).length === 1 ? "ă" : "e"} pentru filtrele selectate</p>
+      ${arataTopMagazine ? topMagazineHtml(topMagazine) : ""}
       ${tabelStatisticiHtml(coloaneVizibile, comenzi || [], getValoare)}`;
+
+            resultsEl.querySelectorAll(".top-magazin-row").forEach((el) => {
+              el.addEventListener("click", () => {
+                const id = el.dataset.topMagazinId;
+                if (!id) return;
+                state.magazinId =
+                  id === "vanzare_directa" ? "vanzare_directa" : id;
+                renderStatisticiTab(container);
+              });
+            });
+
+            const topMagazineToggleBtn = document.getElementById(
+              "top-magazine-toggle",
+            );
+            if (topMagazineToggleBtn) {
+              topMagazineToggleBtn.addEventListener("click", () => {
+                const body = document.getElementById("top-magazine-body");
+                const icon = document.getElementById(
+                  "top-magazine-toggle-icon",
+                );
+                const isHidden = body.classList.toggle("hidden");
+                icon.textContent = isHidden ? "+" : "-";
+              });
+            }
 
             resultsEl.querySelectorAll(".stat-comanda-link").forEach((el) => {
               el.addEventListener("click", () => {
@@ -9916,6 +10119,8 @@
             state.termenPlata = termenPlataInput.value.trim();
           const stadiuPlataSel = document.getElementById("stat-stadiu-plata");
           if (stadiuPlataSel) state.stadiuPlata = stadiuPlataSel.value;
+          const stadiuTermenSel = document.getElementById("stat-stadiu-termen");
+          if (stadiuTermenSel) state.stadiuTermen = stadiuTermenSel.value;
           incarcaSiAfiseaza();
         });
         document.getElementById("stat-reset").addEventListener("click", () => {
