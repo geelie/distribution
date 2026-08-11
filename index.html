@@ -2498,7 +2498,7 @@
     </div>
     <div class="flex items-center justify-between gap-3 mb-3 bg-slate-50 rounded-lg px-3 py-2 border" style="border-color:var(--line)">
       <p id="antedepozit-selectie-count" class="text-sm text-slate-600"><span class="font-semibold">${antedepozitSelectie.size}</span> produs${antedepozitSelectie.size === 1 ? "" : "e"} selectat${antedepozitSelectie.size === 1 ? "" : "e"}</p>
-      <button type="button" id="btn-antedepozit-verifica-selectie" class="rounded-lg px-4 py-2 text-sm font-medium border ${antedepozitSelectie.size ? "btn-primary" : "text-slate-400 cursor-not-allowed"}" style="border-color:var(--line)" ${antedepozitSelectie.size ? "" : "disabled"}>Verifică selecția</button>
+      <button type="button" id="btn-antedepozit-verifica-selectie" class="rounded-lg px-4 py-2 text-sm font-medium border ${antedepozitSelectie.size ? "btn-primary" : "text-slate-400 cursor-not-allowed"}" style="border-color:var(--line)" ${antedepozitSelectie.size ? "" : "disabled"}>Mută toate</button>
     </div>
     <p id="antedepozit-upload-msg" class="text-xs text-slate-400 mb-2"></p>
     ${renderAntedepozitTableHtml(d.itemi, getPageState(pageKey).page * PAGE_SIZE, profileById)}
@@ -2803,10 +2803,10 @@
           overlay.innerHTML = `
     <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto flex flex-col" style="max-height:85vh">
       <div class="flex items-start justify-between mb-1 shrink-0">
-        <h2 class="text-base font-bold">Verifică selecția</h2>
+        <h2 class="text-base font-bold">Verifică produse selectate</h2>
         <button type="button" id="verifica-selectie-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
       </div>
-      <p id="verifica-selectie-count" class="text-sm text-slate-500 mb-3 shrink-0">${n} produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}. Elimină din listă produsele bifate din greșeală.</p>
+      <p id="verifica-selectie-count" class="text-sm text-slate-500 mb-3 shrink-0">${n} produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}.</p>
       <input type="text" id="verifica-selectie-cauta" placeholder="Caută în selecție după model, VIN sau culoare..." autocomplete="off" value="${esc(cautareVerificare)}" class="${inputBase()} mb-3 shrink-0">
       <div id="verifica-selectie-lista" class="space-y-2 overflow-y-auto pr-1" style="max-height:55vh">
         ${randListaHtml() || `<p class="text-sm text-slate-400 text-center py-4">Niciun produs selectat.</p>`}
