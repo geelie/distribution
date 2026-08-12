@@ -4581,9 +4581,30 @@
       async function syncComandaStatus(comandaId, lines) {
         if (!comandaId) return;
         const status = computeComandaStatus(lines || []);
+        const updatePayload = { status, updated_at: new Date().toISOString() };
+        if (status === "onorata") {
+          // Termenul de plată curge de la data onorării integrale (= data facturării),
+          // nu de la data creării comenzii. Se ștampilează o singură dată, la prima
+          // atingere a stadiului "onorată" — nu se resuprascrie la reveniri ulterioare.
+          const { data: comandaCurenta } = await supa
+            .from("comenzi")
+            .select("termen_plata, data_limita_plata")
+            .eq("id", comandaId)
+            .single();
+          if (
+            comandaCurenta &&
+            comandaCurenta.termen_plata &&
+            !comandaCurenta.data_limita_plata
+          ) {
+            updatePayload.data_limita_plata = adaugaZileData(
+              astaziISO(),
+              comandaCurenta.termen_plata,
+            );
+          }
+        }
         await supa
           .from("comenzi")
-          .update({ status, updated_at: new Date().toISOString() })
+          .update(updatePayload)
           .eq("id", comandaId)
           .neq("status", "anulata");
       }
@@ -5056,9 +5077,6 @@
               creat_de: currentUser.id,
               status: "in_asteptare",
               termen_plata: termenPlataZile,
-              data_limita_plata: termenPlataZile
-                ? adaugaZileData(astaziISO(), termenPlataZile)
-                : null,
               observatii:
                 document.getElementById("comanda-observatii").value.trim() ||
                 null,
