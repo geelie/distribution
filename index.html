@@ -9570,6 +9570,63 @@
       </div>`;
       }
 
+      // Agregă produsele deja filtrate (subset "Vândute") pe magazin/hub,
+      // pentru un top al magazinelor/hub-urilor după numărul de produse vândute.
+      function calculeazaTopMagazineVanzari(produse, magazine) {
+        const harta = new Map(); // cheie (magazinId sau "vanzare_directa") -> { label, nrProduse }
+        (produse || []).forEach((p) => {
+          const cheie = p.vanzare_directa
+            ? "vanzare_directa"
+            : p.magazin_id || "necunoscut";
+          const label = p.vanzare_directa
+            ? "Vânzare directă"
+            : magazinLabelDin(magazine, p.magazin_id);
+          const cur = harta.get(cheie) || { label, nrProduse: 0 };
+          cur.nrProduse += 1;
+          harta.set(cheie, cur);
+        });
+        return [...harta.entries()]
+          .map(([magazinId, v]) => ({
+            magazinId,
+            magazin: v.label,
+            nrProduse: v.nrProduse,
+          }))
+          .sort((a, b) => b.nrProduse - a.nrProduse);
+      }
+
+      function topMagazineVanzariHtml(top) {
+        if (!top.length) return "";
+        return `
+      <div class="bg-white rounded-xl border mb-3" style="border-color:var(--line)">
+        <button type="button" id="top-magazine-vanzari-toggle" class="w-full flex items-center gap-1 px-4 pt-3 pb-2 text-sm font-semibold text-slate-700">
+          <span id="top-magazine-vanzari-toggle-icon">+</span> Top magazine/hub vânzări (${top.length})
+        </button>
+        <div id="top-magazine-vanzari-body" class="hidden">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-slate-500 border-b" style="border-color:var(--line)">
+              <th class="px-4 py-2 font-medium w-10">#</th>
+              <th class="px-4 py-2 font-medium">Magazin / Hub</th>
+              <th class="px-4 py-2 font-medium">Produse vândute</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${top
+              .map(
+                (r, i) => `
+            <tr class="border-b last:border-0 top-magazin-vanzari-row cursor-pointer hover:bg-slate-50" style="border-color:var(--line)" data-top-magazin-vanzari-id="${esc(r.magazinId)}">
+              <td class="px-4 py-2 text-slate-400">${i + 1}</td>
+              <td class="px-4 py-2 font-medium">${esc(r.magazin)}</td>
+              <td class="px-4 py-2">${r.nrProduse}</td>
+            </tr>`,
+              )
+              .join("")}
+          </tbody>
+        </table>
+        </div>
+      </div>`;
+      }
+
       function coloaneCuDate(coloane, randuri, getValoare) {
         if (!randuri.length) return coloane;
         return coloane.filter((c) =>
@@ -10224,8 +10281,8 @@
               if (idsEfective) qs = qs.in("magazin_id", idsEfective);
               qs = qs.eq("vandut", true);
               qs = qs
-                .gte("data_vanzare", state.start)
-                .lte("data_vanzare", state.end);
+                .gte("data_vanzare", state.start + "T00:00:00")
+                .lte("data_vanzare", state.end + "T23:59:59");
             } else {
               // toate
               if (idsEfective) qs = qs.in("magazin_id", idsEfective);
@@ -10295,9 +10352,43 @@
             state.afiseazaTotal && (produse || []).length
               ? calculeazaRandTotalProduse(coloaneVizibile, produse || [])
               : null;
+          const arataTopMagazineVanzari =
+            esteAdmin &&
+            subseturiActive.includes("vandute") &&
+            !state.magazinId;
+          const topMagazineVanzari = arataTopMagazineVanzari
+            ? calculeazaTopMagazineVanzari(produse || [], toateMagazinele)
+            : [];
           resultsEl.innerHTML = `
       <p class="text-sm text-slate-500 mb-2 shrink-0">${(produse || []).length} produs${(produse || []).length === 1 ? "" : "e"} găsit${(produse || []).length === 1 ? "" : "e"} pentru filtrele selectate</p>
+      ${arataTopMagazineVanzari ? topMagazineVanzariHtml(topMagazineVanzari) : ""}
       ${tabelStatisticiHtml(coloaneVizibile, produse || [], getValoare, randTotal)}`;
+
+          resultsEl
+            .querySelectorAll(".top-magazin-vanzari-row")
+            .forEach((el) => {
+              el.addEventListener("click", () => {
+                const id = el.dataset.topMagazinVanzariId;
+                if (!id) return;
+                state.magazinId =
+                  id === "vanzare_directa" ? "vanzare_directa" : id;
+                renderStatisticiTab(container);
+              });
+            });
+
+          const topMagazineVanzariToggleBtn = document.getElementById(
+            "top-magazine-vanzari-toggle",
+          );
+          if (topMagazineVanzariToggleBtn) {
+            topMagazineVanzariToggleBtn.addEventListener("click", () => {
+              const body = document.getElementById("top-magazine-vanzari-body");
+              const icon = document.getElementById(
+                "top-magazine-vanzari-toggle-icon",
+              );
+              const isHidden = body.classList.toggle("hidden");
+              icon.textContent = isHidden ? "+" : "-";
+            });
+          }
 
           ultimulRaport = {
             meta: {
