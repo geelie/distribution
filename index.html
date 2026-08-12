@@ -1495,7 +1495,7 @@
         overlay.innerHTML = `
     <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm fade-in">
       <h2 class="text-lg font-bold mb-1">Adresă de facturare</h2>
-      <p class="text-sm text-slate-500 mb-5">Pentru magazinul ${esc(p.nume || p.email)}${p.filiala ? " - " + esc(p.filiala) : ""}. Va fi folosită ulterior la comenzi.</p>
+      <p class="text-sm text-slate-500 mb-5">Pentru ${p.role === "magazin_hub" ? "hub-ul" : "magazinul"} ${esc(p.nume || p.email)}${p.filiala ? " - " + esc(p.filiala) : ""}. Va fi folosită ulterior la comenzi.</p>
       <form id="form-billing-address" class="space-y-4">
         <div>
           ${fieldLabel("Adresă de facturare")}
@@ -1704,7 +1704,7 @@
     </td>
     <td class="px-3 py-2">
       ${
-        isMagazin
+        isMagazin || isHub
           ? `
         <button data-billing="${p.id}" class="billing-btn whitespace-nowrap w-16 h-[28px] flex flex-col items-center justify-center rounded-md text-center text-[9px] leading-[1.1] font-semibold ${p.adresa_facturare ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100" : "bg-slate-100 text-slate-500 hover:bg-slate-200"}">
           ${p.adresa_facturare ? "✓ Adresă<br>facturare" : "+ Adaugă<br>adresă"}
@@ -7851,7 +7851,7 @@
         <button type="button" id="magazine-alocate-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none" title="Închide">✕</button>
       </div>
       <input type="text" id="magazine-alocate-search" class="border rounded-md px-2.5 py-1.5 text-sm mb-2 shrink-0" style="border-color:var(--line)" placeholder="Caută după nume sau filială...">
-      <div id="magazine-alocate-list" class="space-y-0.5 overflow-y-auto flex-1 min-h-0">
+      <div id="magazine-alocate-list" class="space-y-0.5 overflow-y-auto flex-1 min-h-0 border rounded-lg p-2 bg-slate-50/60" style="border-color:var(--line); max-height:23rem;">
         ${
           magazine.length === 0
             ? '<p class="text-xs text-slate-400 text-center py-3">Niciun magazin disponibil.</p>'
