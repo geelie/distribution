@@ -165,6 +165,127 @@
         setTimeout(() => el.remove(), 3500);
       }
 
+      // ---- Realtime: actualizare automată pentru toți utilizatorii, fără refresh manual ----
+      let realtimeChannel = null;
+      let realtimeDebounceTimer = null;
+      let refreshRealtimeInAsteptare = false;
+
+      // Orice modal din aplicație e un overlay ".fixed.inset-0" adăugat în <body>
+      // (vezi renderListaEvenimentModal, renderNotificariPretModal etc.) — deci
+      // detectarea e generică, fără să fie nevoie să marcăm fiecare modal în parte.
+      // Excludem #sidebar-overlay (meniul mobil), care nu blochează o editare.
+      function esteModalDeschis() {
+        const overlays = document.querySelectorAll(".fixed.inset-0");
+        for (const el of overlays) {
+          if (el.id === "sidebar-overlay") continue;
+          if (el.classList.contains("hidden")) continue;
+          return true;
+        }
+        return false;
+      }
+
+      // "Administrare utilizatori" editează rolul/numele/telefonul/filiala direct
+      // în rândul din tabel (fără modal) — câmpurile respective au atributul
+      // data-field. Comparăm valoarea curentă cu valoarea inițială (defaultValue
+      // / opțiunea implicit selectată) ca să detectăm o editare nesalvată, fără
+      // să atingem renderUserAdmin/bindUserRow.
+      function existaCampuriNesalvate() {
+        const campuri = document.querySelectorAll("#page-content [data-field]");
+        for (const el of campuri) {
+          if (el.tagName === "SELECT") {
+            const optImplicita = Array.from(el.options).find(
+              (o) => o.defaultSelected,
+            );
+            if (el.value !== (optImplicita ? optImplicita.value : ""))
+              return true;
+          } else if (el.value !== el.defaultValue) {
+            return true;
+          }
+        }
+        return false;
+      }
+
+      function existaEditareInCurs() {
+        return esteModalDeschis() || existaCampuriNesalvate();
+      }
+
+      function aplicaRefreshRealtime() {
+        if (existaEditareInCurs()) {
+          refreshRealtimeInAsteptare = true;
+          return;
+        }
+        refreshRealtimeInAsteptare = false;
+        invalidateCache("profiles", "agent_magazine", "hub_magazine");
+        if (currentTabKey) dispatchTab(currentTabKey);
+        actualizeazaBadgeComenziNoi();
+        toast("Date actualizate");
+      }
+
+      // Observă închiderea modalelor (overlay-urile sunt scoase din DOM prin
+      // .remove() la Salvare/Anulare) ca să aplice un refresh amânat imediat
+      // ce userul termină ce avea de editat, fără să atingem codul modalelor.
+      const realtimeModalObserver = new MutationObserver(() => {
+        if (refreshRealtimeInAsteptare && !existaEditareInCurs()) {
+          aplicaRefreshRealtime();
+        }
+      });
+      realtimeModalObserver.observe(document.body, { childList: true });
+
+      // Acoperă și cazul editării inline (fără modal, ex. Administrare
+      // utilizatori): reîncearcă refresh-ul amânat dacă userul renunță la
+      // modificare (revine la valoarea inițială) sau părăsește tab-ul.
+      document.addEventListener("input", () => {
+        if (refreshRealtimeInAsteptare && !existaEditareInCurs()) {
+          aplicaRefreshRealtime();
+        }
+      });
+      document.addEventListener("change", () => {
+        if (refreshRealtimeInAsteptare && !existaEditareInCurs()) {
+          aplicaRefreshRealtime();
+        }
+      });
+
+      function planificaRefreshRealtime() {
+        clearTimeout(realtimeDebounceTimer);
+        realtimeDebounceTimer = setTimeout(aplicaRefreshRealtime, 400);
+      }
+
+      function pornesteRealtime() {
+        if (realtimeChannel) return;
+        realtimeChannel = supa
+          .channel("app-changes")
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "produse" },
+            planificaRefreshRealtime,
+          )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "comenzi" },
+            planificaRefreshRealtime,
+          )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "comanda_produse" },
+            planificaRefreshRealtime,
+          )
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "incarcari_baterie" },
+            planificaRefreshRealtime,
+          )
+          .subscribe();
+      }
+
+      function opresteRealtime() {
+        if (realtimeChannel) {
+          supa.removeChannel(realtimeChannel);
+          realtimeChannel = null;
+        }
+        refreshRealtimeInAsteptare = false;
+        clearTimeout(realtimeDebounceTimer);
+      }
+
       function poateVedeaJurnal() {
         return (
           currentProfile &&
@@ -291,6 +412,7 @@
         if (event === "SIGNED_OUT") {
           currentUser = null;
           currentProfile = null;
+          opresteRealtime();
           renderAuthScreen();
           return;
         }
@@ -387,6 +509,7 @@
         }
         currentProfile = data || null;
         renderShell();
+        pornesteRealtime();
       }
 
       function renderAuthScreen(mode = "login") {
@@ -7796,6 +7919,23 @@
           toast("Salvat cu succes.");
           btn.disabled = false;
           btn.textContent = "Salvează";
+
+          // Actualizează valoarea de referință a câmpurilor (folosită de
+          // existaCampuriNesalvate) ca rândul să nu mai apară "nesalvat"
+          // și să nu mai blocheze inutil refresh-ul automat după salvare.
+          [roleSelect, numeInput, telefonInput, filialaInput].forEach((el) => {
+            if (!el) return;
+            if (el.tagName === "SELECT") {
+              Array.from(el.options).forEach(
+                (o) => (o.defaultSelected = o.value === el.value),
+              );
+            } else {
+              el.defaultValue = el.value;
+            }
+          });
+          if (refreshRealtimeInAsteptare && !existaEditareInCurs()) {
+            aplicaRefreshRealtime();
+          }
         });
       }
 
