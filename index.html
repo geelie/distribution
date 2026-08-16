@@ -930,6 +930,7 @@
             { key: "acasa", label: "Acasă" },
             { key: "comenzi", label: "Comenzile mele" },
             { key: "stoc-alocat", label: "Stoc magazine alocate" },
+            { key: "vanzari-alocat", label: "Vânzări magazine alocate" },
             { key: "baterii", label: "Încărcare baterii" },
             { key: "statistici", label: "Statistici" },
           ];
@@ -992,6 +993,11 @@
           renderDepozitHub(content);
         } else if (key === "stoc-alocat" && currentProfile.role === "agent") {
           renderAgentStoc(content);
+        } else if (
+          key === "vanzari-alocat" &&
+          currentProfile.role === "agent"
+        ) {
+          renderAgentVanzari(content);
         } else if (key === "baterii") {
           renderBateriiTab(content);
         } else if (key === "vandute") {
@@ -1367,33 +1373,51 @@
               .eq("agent_id", currentUser.id);
             const magazinIds = (asocieri || []).map((a) => a.magazin_id);
 
-            const [comenziRes, stocAlocatRes, vanduteRes, neachitateRes] =
-              await Promise.all([
-                supa
-                  .from("comenzi")
-                  .select("id", { count: "exact", head: true })
-                  .eq("creat_de", currentUser.id)
-                  .in("status", ["in_asteptare", "partial_onorata"]),
-                magazinIds.length
-                  ? supa
-                      .from("produse")
-                      .select("id", { count: "exact", head: true })
-                      .in("magazin_id", magazinIds)
-                      .eq("vandut", false)
-                  : Promise.resolve({ count: 0 }),
-                supa
-                  .from("produse")
-                  .select("pret_cu_tva")
-                  .eq("vandut_de", currentUser.id)
-                  .eq("vandut", true)
-                  .gte("data_vanzare", start)
-                  .lt("data_vanzare", end),
-                supa
-                  .from("comenzi")
-                  .select("id", { count: "exact", head: true })
-                  .eq("creat_de", currentUser.id)
-                  .is("stadiu_plata", null),
-              ]);
+            const [
+              comenziRes,
+              stocAlocatRes,
+              vanduteRes,
+              neachitateRes,
+              vanduteMagazineRes,
+              profilesRes,
+            ] = await Promise.all([
+              supa
+                .from("comenzi")
+                .select("id", { count: "exact", head: true })
+                .eq("creat_de", currentUser.id)
+                .in("status", ["in_asteptare", "partial_onorata"]),
+              magazinIds.length
+                ? supa
+                    .from("produse")
+                    .select("id", { count: "exact", head: true })
+                    .in("magazin_id", magazinIds)
+                    .eq("vandut", false)
+                : Promise.resolve({ count: 0 }),
+              supa
+                .from("produse")
+                .select("pret_cu_tva")
+                .eq("vandut_de", currentUser.id)
+                .eq("vandut", true)
+                .gte("data_vanzare", start)
+                .lt("data_vanzare", end),
+              supa
+                .from("comenzi")
+                .select("id", { count: "exact", head: true })
+                .eq("creat_de", currentUser.id)
+                .is("stadiu_plata", null),
+              magazinIds.length
+                ? supa
+                    .from("produse")
+                    .select("id,magazin_id")
+                    .in("magazin_id", magazinIds)
+                    .eq("vandut", true)
+                    .gte("data_vanzare", start)
+                    .lt("data_vanzare", end)
+                : Promise.resolve({ data: [] }),
+              magazinIds.length
+                ? getCached("profiles")
+                : Promise.resolve({ data: [] }),
+            ]);
             const vandute = vanduteRes.data || [];
             const valoareVandute = vandute.reduce(
               (s, p) => s + (Number(p.pret_cu_tva) || 0),
@@ -1405,6 +1429,33 @@
         ${acasaCard({ label: "Stoc alocat disponibil", value: stocAlocatRes.count ?? 0, tabKey: "stoc-alocat" })}
         ${acasaCard({ label: "Vânzări luna aceasta", value: vandute.length, sub: `${fmtNum(valoareVandute)} lei`, colorClass: "text-emerald-600" })}
         ${acasaCard({ label: "Comenzi neachitate", value: neachitateRes.count ?? 0, colorClass: neachitateRes.count ? "text-amber-600" : "text-slate-800", tabKey: "comenzi" })}`;
+
+            if (magazinIds.length) {
+              const vanduteMagazine = vanduteMagazineRes.data || [];
+              const perMagazinAgent = {};
+              vanduteMagazine.forEach((p) => {
+                perMagazinAgent[p.magazin_id] =
+                  (perMagazinAgent[p.magazin_id] || 0) + 1;
+              });
+              const profilesAgent = profilesRes.data || [];
+              const top3Agent = Object.entries(perMagazinAgent)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 3)
+                .map(([id, n]) => {
+                  const m = profilesAgent.find((x) => x.id === id);
+                  const label = m
+                    ? `${m.nume || m.email}${m.filiala ? " - " + m.filiala : ""}`
+                    : "Magazin";
+                  return `<div class="flex justify-between gap-2"><span class="truncate">${esc(label)}</span><span class="font-medium shrink-0">${n}</span></div>`;
+                })
+                .join("");
+
+              cardsHtml += `
+        <div class="bg-white rounded-xl border p-4 fade-in" style="border-color:var(--line)">
+          <div class="text-xs font-medium text-slate-400 mb-2">Top magazine (vânzări luna aceasta)</div>
+          <div class="text-sm text-slate-700 space-y-1">${top3Agent || '<span class="text-slate-400">—</span>'}</div>
+        </div>`;
+            }
           } else if (
             currentProfile.role === "admin" ||
             currentProfile.role === "superadmin"
@@ -7203,6 +7254,7 @@
                 .from("produse")
                 .select("*")
                 .in("magazin_id", magazinIds)
+                .eq("vandut", false)
                 .order("created_at", { ascending: true });
               const orFilter = buildSearchOrFilter(termenCautare, [
                 "id_produs",
@@ -7280,7 +7332,8 @@
             supa
               .from("produse")
               .select("id", { count: "exact", head: true })
-              .eq("magazin_id", id),
+              .eq("magazin_id", id)
+              .eq("vandut", false),
           ),
         );
         if (isStaleRender(myGen)) return;
@@ -7314,7 +7367,7 @@
 
           async function incarcaSiRandeaza() {
             panel.innerHTML = `<div class="p-4 text-sm text-slate-400">Se încarcă...</div>`;
-            const d = await loadStocMagazinPagina(m.id, pageKey, false);
+            const d = await loadStocMagazinPagina(m.id, pageKey, true);
             if (d.error) {
               panel.innerHTML = `<div class="p-4 text-red-600 text-sm">Eroare: ${esc(d.error.message)}</div>`;
               return;
@@ -7339,6 +7392,78 @@
             if (!isHidden && !loaded) await incarcaSiRandeaza();
           });
         });
+      }
+
+      async function renderAgentVanzari(container) {
+        container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
+        const [
+          { data: asocieri, error: asoErr },
+          { data: profiles, error: profErr },
+        ] = await Promise.all([
+          supa
+            .from("agent_magazine")
+            .select("*")
+            .eq("agent_id", currentUser.id),
+          getCached("profiles"),
+        ]);
+        if (asoErr || profErr) {
+          const e = asoErr || profErr;
+          container.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(e.message)}</div>`;
+          return;
+        }
+        const magazinIds = (asocieri || []).map((a) => a.magazin_id);
+        const magazine = (profiles || []).filter((p) =>
+          magazinIds.includes(p.id),
+        );
+        if (!magazine.length) {
+          container.innerHTML = `<div class="bg-white rounded-xl border p-10 text-center" style="border-color:var(--line)"><p class="text-slate-400 text-sm">Nu ai niciun magazin alocat.</p></div>`;
+          return;
+        }
+        let vanzariQueryAgent = supa
+          .from("produse")
+          .select("*")
+          .in("magazin_id", magazinIds)
+          .eq("vandut", true)
+          .order("data_vanzare", { ascending: false });
+        const orFilterAgent = buildSearchOrFilter(
+          tabSearchTerms[currentTabKey] || "",
+          [
+            "id_produs",
+            "marca",
+            "model",
+            "culoare",
+            "vin",
+            "client_nume",
+            "client_telefon",
+            "client_email",
+          ],
+        );
+        if (orFilterAgent)
+          vanzariQueryAgent = vanzariQueryAgent.or(orFilterAgent);
+        const { data: produse, error: prodErr } = await vanzariQueryAgent;
+        if (prodErr) {
+          container.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(prodErr.message)}</div>`;
+          return;
+        }
+        const magazinLabelFn = (p) => {
+          const m = magazine.find((x) => x.id === p.magazin_id);
+          return m
+            ? `${m.nume || m.email}${m.filiala ? " - " + m.filiala : ""}`
+            : "—";
+        };
+        const produsIdsV = (produse || []).map((p) => p.id);
+        const { data: incarcariV } = produsIdsV.length
+          ? await supa
+              .from("incarcari_baterie")
+              .select("*")
+              .in("produs_id", produsIdsV)
+          : { data: [] };
+        container.innerHTML = `
+    <p class="text-sm text-slate-500 mb-4">${(produse || []).length} produs${(produse || []).length === 1 ? "" : "e"} vândut${(produse || []).length === 1 ? "" : "e"} în magazinele alocate</p>
+    ${vanzariTableHtml(produse || [], magazinLabelFn, incarcariV || [])}`;
+        bindDeschideDocumenteVanzare(container);
+        bindIstoricBaterieVanzare(container, produse || [], incarcariV || []);
+        bindAdresaToggle(container);
       }
 
       async function renderHubStoc(container) {
