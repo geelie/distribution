@@ -1050,7 +1050,7 @@
 
       function acasaCard({ label, value, sub, colorClass, tabKey }) {
         return `
-    <button type="button" data-acasa-tab="${tabKey || ""}" class="text-left bg-white rounded-xl border p-4 fade-in ${tabKey ? "hover:shadow-md transition-shadow cursor-pointer" : "cursor-default"}" style="border-color:var(--line)">
+    <button type="button" data-acasa-tab="${tabKey || ""}" class="text-left bg-white rounded-xl border p-4 fade-in acasa-card-fix ${tabKey ? "hover:shadow-md transition-shadow cursor-pointer" : "cursor-default"}" style="border-color:var(--line)">
       <div class="text-xs font-medium text-slate-400 mb-1">${esc(label)}</div>
       <div class="text-2xl font-bold ${colorClass || "text-slate-800"}">${esc(String(value))}</div>
       ${sub ? `<div class="text-xs text-slate-400 mt-1">${esc(sub)}</div>` : ""}
@@ -1059,7 +1059,7 @@
 
       function acasaCardNotificariPret(count) {
         return `
-    <button type="button" id="acasa-card-notificari-pret" class="text-left bg-white rounded-xl border p-4 fade-in ${count ? "hover:shadow-md transition-shadow cursor-pointer" : "cursor-default"}" style="border-color:var(--line)">
+    <button type="button" id="acasa-card-notificari-pret" class="text-left bg-white rounded-xl border p-4 fade-in acasa-card-fix ${count ? "hover:shadow-md transition-shadow cursor-pointer" : "cursor-default"}" style="border-color:var(--line)">
       <div class="text-xs font-medium text-slate-400 mb-1">Notificări modificări preț</div>
       <div class="text-2xl font-bold ${count ? "text-red-600" : "text-slate-800"}">${count}</div>
       ${count ? `<div class="text-xs text-slate-400 mt-1">Produse cu preț/discount modificat, LOG neconsultat</div>` : ""}
@@ -1068,7 +1068,7 @@
 
       function acasaCardEveniment(id, label, count) {
         return `
-    <button type="button" id="${id}" class="text-left bg-white rounded-xl border p-4 fade-in ${count ? "hover:shadow-md transition-shadow cursor-pointer" : "cursor-default"}" style="border-color:var(--line)">
+    <button type="button" id="${id}" class="text-left bg-white rounded-xl border p-4 fade-in acasa-card-fix ${count ? "hover:shadow-md transition-shadow cursor-pointer" : "cursor-default"}" style="border-color:var(--line)">
       <div class="text-xs font-medium text-slate-400 mb-1">${esc(label)}</div>
       <div class="text-2xl font-bold ${count ? "text-amber-600" : "text-slate-800"}">${count}</div>
       ${count ? `<div class="text-xs text-slate-400 mt-1">Click pentru detalii</div>` : ""}
@@ -1361,9 +1361,9 @@
         ${acasaCard({ label: "Vândute luna aceasta", value: `${vandute.length} buc.`, colorClass: "text-emerald-600", tabKey: "vandute" })}
         ${acasaCard({ label: "Comenzi active", value: comenziRes.count ?? 0, tabKey: "comenzi" })}
         ${acasaCard({ label: "Baterii depășite", value: rez.depasite, sub: rez.ultimaZi ? `${rez.ultimaZi} produs${rez.ultimaZi === 1 ? "" : "e"} în ultima zi a ciclului` : "Niciun produs în ultima zi a ciclului", colorClass: rez.depasite ? "text-red-600" : "text-slate-800", tabKey: "baterii" })}
-        <div class="bg-white rounded-xl border p-4 fade-in" style="border-color:var(--line)">
-          <div class="text-xs font-medium text-slate-400 mb-2">Top magazine (vânzări luna aceasta)</div>
-          <div class="text-sm text-slate-700 space-y-1">${top3 || '<span class="text-slate-400">—</span>'}</div>
+        <div class="bg-white rounded-xl border p-4 fade-in acasa-card-fix" style="border-color:var(--line)">
+          <div class="text-xs font-medium text-slate-400 mb-1">Top magazine (vânzări luna aceasta)</div>
+          <div class="text-xs text-slate-700 space-y-0.5">${top3 || '<span class="text-slate-400">—</span>'}</div>
         </div>`;
             }
           } else if (currentProfile.role === "agent") {
@@ -1376,7 +1376,6 @@
             const [
               comenziRes,
               stocAlocatRes,
-              vanduteRes,
               neachitateRes,
               vanduteMagazineRes,
               profilesRes,
@@ -1393,13 +1392,6 @@
                     .in("magazin_id", magazinIds)
                     .eq("vandut", false)
                 : Promise.resolve({ count: 0 }),
-              supa
-                .from("produse")
-                .select("pret_cu_tva")
-                .eq("vandut_de", currentUser.id)
-                .eq("vandut", true)
-                .gte("data_vanzare", start)
-                .lt("data_vanzare", end),
               supa
                 .from("comenzi")
                 .select("id", { count: "exact", head: true })
@@ -1418,11 +1410,48 @@
                 ? getCached("profiles")
                 : Promise.resolve({ data: [] }),
             ]);
-            const vandute = vanduteRes.data || [];
-            const valoareVandute = vandute.reduce(
-              (s, p) => s + (Number(p.pret_cu_tva) || 0),
-              0,
-            );
+
+            let comenziLunaAgent = [];
+            let liniiComenziLunaAgent = [];
+            let vandute = [];
+            let valoareVandute = 0;
+            if (magazinIds.length) {
+              const { data: cla } = await supa
+                .from("comenzi")
+                .select("id,magazin_id")
+                .eq("creat_de", currentUser.id)
+                .gte("created_at", start)
+                .lt("created_at", end);
+              comenziLunaAgent = cla || [];
+              const comenziLunaAgentIds = comenziLunaAgent.map((c) => c.id);
+              const { data: lcla } = comenziLunaAgentIds.length
+                ? await supa
+                    .from("comanda_produse")
+                    .select("comanda_id,produs_id,status_linie")
+                    .in("comanda_id", comenziLunaAgentIds)
+                : { data: [] };
+              liniiComenziLunaAgent = lcla || [];
+
+              const produsIdsIntermediateAgent = Array.from(
+                new Set(
+                  liniiComenziLunaAgent
+                    .filter((l) => l.status_linie === "trimis" && l.produs_id)
+                    .map((l) => l.produs_id),
+                ),
+              );
+              const { data: produseIntermediateAgent } =
+                produsIdsIntermediateAgent.length
+                  ? await supa
+                      .from("produse")
+                      .select("id,pret_cu_tva")
+                      .in("id", produsIdsIntermediateAgent)
+                  : { data: [] };
+              vandute = produseIntermediateAgent || [];
+              valoareVandute = vandute.reduce(
+                (s, p) => s + (Number(p.pret_cu_tva) || 0),
+                0,
+              );
+            }
 
             cardsHtml = `
         ${acasaCard({ label: "Comenzile mele active", value: comenziRes.count ?? 0, tabKey: "comenzi" })}
@@ -1451,9 +1480,47 @@
                 .join("");
 
               cardsHtml += `
-        <div class="bg-white rounded-xl border p-4 fade-in" style="border-color:var(--line)">
-          <div class="text-xs font-medium text-slate-400 mb-2">Top magazine (vânzări luna aceasta)</div>
-          <div class="text-sm text-slate-700 space-y-1">${top3Agent || '<span class="text-slate-400">—</span>'}</div>
+        <div class="bg-white rounded-xl border p-4 fade-in acasa-card-fix" style="border-color:var(--line)">
+          <div class="text-xs font-medium text-slate-400 mb-1">Top magazine (vânzări luna aceasta)</div>
+          <div class="text-xs text-slate-700 space-y-0.5">${top3Agent || '<span class="text-slate-400">—</span>'}</div>
+        </div>`;
+
+              const comenziMagazinMapAgent = new Map(
+                comenziLunaAgent.map((c) => [c.id, c.magazin_id]),
+              );
+              const perMagazinComenziAgent = {};
+              comenziLunaAgent.forEach((c) => {
+                perMagazinComenziAgent[c.magazin_id] =
+                  (perMagazinComenziAgent[c.magazin_id] || 0) + 1;
+              });
+              const perMagazinProduseAgent = {};
+              liniiComenziLunaAgent.forEach((l) => {
+                const magId = comenziMagazinMapAgent.get(l.comanda_id);
+                if (!magId) return;
+                perMagazinProduseAgent[magId] =
+                  (perMagazinProduseAgent[magId] || 0) + 1;
+              });
+              const topIntermediatAgent = Object.keys(perMagazinComenziAgent)
+                .map((magId) => ({
+                  magId,
+                  nrComenzi: perMagazinComenziAgent[magId] || 0,
+                  nrProduse: perMagazinProduseAgent[magId] || 0,
+                }))
+                .sort((a, b) => b.nrProduse - a.nrProduse)
+                .slice(0, 3)
+                .map(({ magId, nrComenzi, nrProduse }) => {
+                  const m = profilesAgent.find((x) => x.id === magId);
+                  const label = m
+                    ? `${m.nume || m.email}${m.filiala ? " - " + m.filiala : ""}`
+                    : "Magazin";
+                  return `<div class="flex justify-between gap-2"><span class="truncate">${esc(label)}</span><span class="font-medium shrink-0">${nrComenzi}/${nrProduse}</span></div>`;
+                })
+                .join("");
+
+              cardsHtml += `
+        <div class="bg-white rounded-xl border p-4 fade-in acasa-card-fix" style="border-color:var(--line)">
+          <div class="text-xs font-medium text-slate-400 mb-1">Top magazine intermediate (comenzi/produse, luna aceasta)</div>
+          <div class="text-xs text-slate-700 space-y-0.5">${topIntermediatAgent || '<span class="text-slate-400">—</span>'}</div>
         </div>`;
             }
           } else if (
