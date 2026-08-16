@@ -1202,7 +1202,7 @@
       }
 
       function acasaHeader() {
-        const nume = currentProfile.nume || currentProfile.email;
+        const nume = `${currentProfile.nume || currentProfile.email}${currentProfile.filiala ? " - " + currentProfile.filiala : ""}`;
         return `
     <div class="bg-white rounded-xl border p-5 mb-5 fade-in" style="border-color:var(--line)">
       <div class="flex items-center justify-between flex-wrap gap-2">
@@ -1343,7 +1343,10 @@
                 .slice(0, 3)
                 .map(([id, n]) => {
                   const m = profiles.find((x) => x.id === id);
-                  return `<div class="flex justify-between gap-2"><span class="truncate">${esc(m ? m.nume || m.email : "Magazin")}</span><span class="font-medium shrink-0">${n}</span></div>`;
+                  const label = m
+                    ? `${m.nume || m.email}${m.filiala ? " - " + m.filiala : ""}`
+                    : "Magazin";
+                  return `<div class="flex justify-between gap-2"><span class="truncate">${esc(label)}</span><span class="font-medium shrink-0">${n}</span></div>`;
                 })
                 .join("");
 
