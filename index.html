@@ -8,7 +8,6 @@
     <link rel="icon" type="image/png" href="assets/favicon.png?v=2" />
     <link href="./css/output.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
       href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600&display=swap"
@@ -155,6 +154,32 @@
               "'": "&#39;",
             })[c],
         );
+      }
+
+      // ExcelJS e o bibliotecă mare (import/export .xlsx), folosită doar de
+      // Admin/Super Admin (Antedepozit Import, export Excel din Statistici).
+      // Se încarcă la cerere (nu la fiecare load al aplicației) ca să nu
+      // penseze toți userii (magazin/agent) cu acel download.
+      let _excelJsLoadPromise = null;
+      function ensureExcelJS() {
+        if (window.ExcelJS) return Promise.resolve();
+        if (_excelJsLoadPromise) return _excelJsLoadPromise;
+        _excelJsLoadPromise = new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src =
+            "https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js";
+          script.onload = () => resolve();
+          script.onerror = () => {
+            _excelJsLoadPromise = null;
+            reject(
+              new Error(
+                "Nu s-a putut încărca biblioteca Excel. Verifică conexiunea la internet.",
+              ),
+            );
+          };
+          document.head.appendChild(script);
+        });
+        return _excelJsLoadPromise;
       }
       function toast(msg, isError = false) {
         const el = document.createElement("div");
@@ -3420,6 +3445,7 @@
           msg.textContent = "Se citește fișierul...";
         }
         try {
+          await ensureExcelJS();
           const buffer = await file.arrayBuffer();
           const wb = new ExcelJS.Workbook();
           await wb.xlsx.load(buffer);
@@ -10028,6 +10054,12 @@
         getValoare,
         randTotal,
       ) {
+        try {
+          await ensureExcelJS();
+        } catch (e) {
+          toast(e.message || "Nu s-a putut încărca modulul Excel.", true);
+          return;
+        }
         const antete = ["Nr. crt.", ...coloane.map((c) => c.label)];
         const randuriDate = randuri.map((r, i) => [
           i + 1,
