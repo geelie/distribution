@@ -1427,26 +1427,28 @@
               const { data: lcla } = comenziLunaAgentIds.length
                 ? await supa
                     .from("comanda_produse")
-                    .select("comanda_id,produs_id,status_linie")
+                    .select("comanda_id")
                     .in("comanda_id", comenziLunaAgentIds)
                 : { data: [] };
               liniiComenziLunaAgent = lcla || [];
 
-              const produsIdsIntermediateAgent = Array.from(
-                new Set(
-                  liniiComenziLunaAgent
-                    .filter((l) => l.status_linie === "trimis" && l.produs_id)
-                    .map((l) => l.produs_id),
-                ),
-              );
-              const { data: produseIntermediateAgent } =
-                produsIdsIntermediateAgent.length
-                  ? await supa
-                      .from("produse")
-                      .select("id,pret_cu_tva")
-                      .in("id", produsIdsIntermediateAgent)
-                  : { data: [] };
-              vandute = produseIntermediateAgent || [];
+              // Aceeași bază de calcul ca subsetul "Toate" din Statistici:
+              // produse.created_at + magazin_id în magazinele alocate + agent (text) ilike numele agentului.
+              const agentNumeFiltru =
+                currentProfile.nume || currentProfile.email || "";
+              let qsVanzariAgent = supa
+                .from("produse")
+                .select("id,pret_cu_tva")
+                .in("magazin_id", magazinIds)
+                .gte("created_at", start)
+                .lt("created_at", end);
+              if (agentNumeFiltru)
+                qsVanzariAgent = qsVanzariAgent.ilike(
+                  "agent",
+                  `%${agentNumeFiltru}%`,
+                );
+              const { data: produseVanzariAgent } = await qsVanzariAgent;
+              vandute = produseVanzariAgent || [];
               valoareVandute = vandute.reduce(
                 (s, p) => s + (Number(p.pret_cu_tva) || 0),
                 0,
