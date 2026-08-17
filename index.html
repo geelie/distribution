@@ -1557,11 +1557,14 @@
               Date.now() - 7 * 86400000,
             ).toISOString();
             const azi = new Date().toISOString().slice(0, 10);
+            const acumLunaAcasa = new Date();
+            const inceputLunaAcasa = `${acumLunaAcasa.getFullYear()}-${String(acumLunaAcasa.getMonth() + 1).padStart(2, "0")}-01`;
             const [
               stocRes,
               trimiseRes,
               comenziRes,
-              vanduteRes,
+              stocMagazineLunaRes,
+              vanduteLunaRes,
               antedepozitRes,
               termenDepasitRes,
             ] = await Promise.all([
@@ -1580,12 +1583,21 @@
                 .from("comenzi")
                 .select("id", { count: "exact", head: true })
                 .in("status", ["in_asteptare", "partial_onorata"]),
+              // "În stoc magazine": aceeași bază de calcul ca subsetul din Statistici/Produse.
               supa
                 .from("produse")
-                .select("pret_cu_tva")
+                .select("id,pret_cu_tva")
+                .not("magazin_id", "is", null)
+                .eq("vandut", false)
+                .gte("data_comenzii", inceputLunaAcasa)
+                .lte("data_comenzii", azi),
+              // "Vândute": aceeași bază de calcul ca subsetul din Statistici/Produse.
+              supa
+                .from("produse")
+                .select("id,pret_cu_tva")
                 .eq("vandut", true)
-                .gte("data_vanzare", start)
-                .lt("data_vanzare", end),
+                .gte("data_vanzare", inceputLunaAcasa + "T00:00:00")
+                .lte("data_vanzare", azi + "T23:59:59"),
               supa
                 .from("antedepozit_import")
                 .select("id", { count: "exact", head: true }),
@@ -1595,7 +1607,17 @@
                 .or("stadiu_plata.is.null,stadiu_plata.eq.partial")
                 .lt("data_limita_plata", azi),
             ]);
-            const vandute = vanduteRes.data || [];
+            // Produse "plecate" din depozitul central luna aceasta: uniunea
+            // subseturilor "În stoc magazine" + "Vândute" (ca în Statistici),
+            // deduplicate după id; valoarea e suma Preț cu TVA.
+            const produsePlecateLunaMap = new Map();
+            (stocMagazineLunaRes.data || []).forEach((p) =>
+              produsePlecateLunaMap.set(p.id, p),
+            );
+            (vanduteLunaRes.data || []).forEach((p) =>
+              produsePlecateLunaMap.set(p.id, p),
+            );
+            const vandute = Array.from(produsePlecateLunaMap.values());
             const valoareVandute = vandute.reduce(
               (s, p) => s + (Number(p.pret_cu_tva) || 0),
               0,
@@ -5155,13 +5177,16 @@
             <div id="comanda-lines-scroll" class="overflow-y-auto pr-1" style="flex:1 1 auto;min-height:0">
               <div id="comanda-lines" class="space-y-0.5"></div>
             </div>
-            <button type="button" id="comanda-add-line" class="mt-1 text-xs font-medium underline shrink-0" style="color:var(--teal-dark)">+ Adaugă produs</button>
           </div>
           <div class="shrink-0">
-            <label class="flex items-center gap-2 text-sm font-medium text-slate-700">
-              <input type="checkbox" id="comanda-dropshipping" class="rounded border-slate-300">
-              Comandă Dropshipping
-            </label>
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <button type="button" id="comanda-vezi-stoc" class="text-xs font-medium underline shrink-0" style="color:var(--teal-dark)">Vezi disponibilitate în stocul central</button>
+              <button type="button" id="comanda-add-line" class="text-xs font-medium underline shrink-0" style="color:var(--teal-dark)">+ Adaugă produs manual</button>
+              <label class="flex items-center gap-2 text-sm font-medium text-slate-700 shrink-0">
+                <input type="checkbox" id="comanda-dropshipping" class="rounded border-slate-300">
+                Comandă Dropshipping
+              </label>
+            </div>
             <div id="comanda-awb-wrap" class="hidden mt-1.5">
               ${fieldLabel("Documente AWB (obligatoriu)")}
               <input type="file" id="comanda-awb-files" multiple accept="application/pdf,image/*" class="${inputBase()} text-slate-600">
@@ -5174,9 +5199,9 @@
           </div>
           <p id="comanda-msg" class="text-sm text-center shrink-0"></p>
         </form>
-        <button type="button" id="comanda-vezi-stoc" class="mt-2 text-xs font-medium underline block shrink-0" style="color:var(--teal-dark)">Vezi disponibilitate în stocul central</button>
       </div>
-      <div id="comanda-stoc-central-wrap" class="hidden bg-white rounded-2xl shadow-xl p-4 fade-in flex flex-col shrink-0" style="width:56rem;max-width:calc(100vw - 3rem);height:43rem;max-height:calc(100vh - 4rem);transition:width .2s ease">
+      <div id="comanda-stoc-central-wrap" class="hidden bg-white rounded-2xl shadow-xl p-4 fade-in flex flex-col shrink-0 relative" style="width:56rem;max-width:calc(100vw - 3rem);height:43rem;max-height:calc(100vh - 4rem);transition:width .2s ease">
+        <button type="button" id="comanda-stoc-central-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none" title="Închide">✕</button>
         <p class="text-sm font-semibold text-slate-700 mb-2 shrink-0">Disponibil în stocul central</p>
         <input type="text" id="comanda-stoc-central-search" class="${inputBase()} mb-2 text-xs shrink-0" placeholder="Caută categorie, marcă, model, culoare...">
         <div class="grid grid-cols-3 gap-2 mb-2 shrink-0">
@@ -5375,6 +5400,14 @@
           document
             .getElementById("comanda-stoc-central-filtru-culoare")
             .addEventListener("input", repaintStocCentral);
+          const stocCentralCloseBtn = document.getElementById(
+            "comanda-stoc-central-close",
+          );
+          if (stocCentralCloseBtn) {
+            stocCentralCloseBtn.addEventListener("click", () => {
+              veziStocBtn.click();
+            });
+          }
         }
 
         document
