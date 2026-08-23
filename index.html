@@ -847,7 +847,7 @@
           <button id="btn-open-sidebar" class="md:hidden text-slate-600 hover:text-slate-900 text-xl leading-none px-1" aria-label="Deschide meniul">☰</button>
           <h1 id="page-title" class="text-base md:text-lg font-bold text-slate-800"></h1>
         </div>
-        <div class="mt-2 relative w-full max-w-xs">
+        <div id="global-search-wrap" class="mt-2 relative w-full max-w-xs">
           <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
           <input id="global-search-input" type="text" placeholder="Caută..." autocomplete="off" class="w-full border rounded-md pl-8 pr-3 py-1.5 text-sm" style="border-color:var(--line)">
         </div>
@@ -1707,6 +1707,8 @@
       }
 
       function bindGlobalSearch() {
+        const wrap = document.getElementById("global-search-wrap");
+        if (wrap) wrap.classList.toggle("hidden", currentTabKey === "acasa");
         const input = document.getElementById("global-search-input");
         if (!input) return;
         input.value = tabSearchTerms[currentTabKey] || "";
@@ -2399,6 +2401,7 @@
       ) {
         const showAgent = !opts || opts.showAgent !== false;
         const showMagazin = !!(opts && opts.showMagazin);
+        const showComenziFields = !opts || opts.showComenziFields !== false;
         return `
     <div class="bg-white rounded-xl border tabel-fix-wrap" style="border-color:var(--line)">
       <table class="w-full text-sm min-w-[1500px]">
@@ -2408,7 +2411,7 @@
             <th class="px-3 py-3 font-medium">ID produs</th>
             ${showAgent ? '<th class="px-3 py-3 font-medium">Agent</th>' : ""}
             ${showMagazin ? '<th class="px-3 py-3 font-medium">Magazin</th>' : ""}
-            <th class="px-3 py-3 font-medium">Data comenzii</th>
+            ${showComenziFields ? '<th class="px-3 py-3 font-medium">Data comenzii</th>' : ""}
             <th class="px-3 py-3 font-medium">Categorie</th>
             <th class="px-3 py-3 font-medium">Marcă</th>
             <th class="px-3 py-3 font-medium">Model</th>
@@ -2422,8 +2425,8 @@
             <th class="px-3 py-3 font-medium">Preț cu TVA</th>
             <th class="px-3 py-3 font-medium">Preț Recomandat</th>
             <th class="px-3 py-3 font-medium">C.I.V.</th>
-            <th class="px-3 py-3 font-medium">Telefon</th>
-            <th class="px-3 py-3 font-medium">Adresă facturare</th>
+            ${showComenziFields ? '<th class="px-3 py-3 font-medium">Telefon</th>' : ""}
+            ${showComenziFields ? '<th class="px-3 py-3 font-medium">Adresă facturare</th>' : ""}
             <th class="px-3 py-3 font-medium"></th>
           </tr>
         </thead>
@@ -2487,7 +2490,7 @@
       <p class="text-sm text-slate-500">${totalCount} produs${totalCount === 1 ? "" : "e"} disponibil${totalCount === 1 ? "" : "e"} în stocul depozitului central</p>
       <button id="btn-add-produs" class="btn-primary rounded-lg px-4 py-2 text-sm">+ Adaugă produs nou</button>
     </div>
-    ${renderProductsTableHtml(stocDisponibil, agenti, magazine, reservedIds, null, { showAgent: false, showMagazin: false }, notificariActive)}
+    ${renderProductsTableHtml(stocDisponibil, agenti, magazine, reservedIds, null, { showAgent: false, showMagazin: false, showComenziFields: false }, notificariActive)}
     ${paginationBarHtml(pageKey, totalCount)}`;
 
         stocDisponibil.forEach((p) =>
@@ -3708,6 +3711,7 @@
       ) {
         const showAgent = !opts || opts.showAgent !== false;
         const showMagazin = !!(opts && opts.showMagazin);
+        const showComenziFields = !opts || opts.showComenziFields !== false;
         const magazinLabel = magazinLabelPentru(
           p.magazin_id,
           magazine,
@@ -3728,7 +3732,7 @@
     </td>
     ${showAgent ? `<td class="px-3 py-3 text-xs">${esc(p.agent || "—")}</td>` : ""}
     ${showMagazin ? `<td class="px-3 py-3 text-xs text-slate-500 adresa-cell max-w-[140px]" title="${esc(magazinLabel)}"><span class="adresa-clamp">${esc(magazinLabel)}</span></td>` : ""}
-    <td class="px-3 py-3 text-xs text-slate-500 data-comenzii-cell">${p.data_comenzii ? new Date(p.data_comenzii).toLocaleDateString("ro-RO") : "—"}</td>
+    ${showComenziFields ? `<td class="px-3 py-3 text-xs text-slate-500 data-comenzii-cell">${p.data_comenzii ? new Date(p.data_comenzii).toLocaleDateString("ro-RO") : "—"}</td>` : ""}
     <td class="px-3 py-3 text-xs">${esc(p.categorie || "—")}</td>
     <td class="px-3 py-3 text-xs">${esc(p.marca || "—")}</td>
     <td class="px-3 py-3 text-xs">${esc(p.model || "—")}</td>
@@ -3742,8 +3746,8 @@
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_cu_tva)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_recomandat)}</td>
     <td class="px-3 py-3 text-xs">${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</td>
-    <td class="px-3 py-3 text-xs text-slate-500">${esc(p.telefon || "—")}</td>
-    <td class="px-3 py-3 text-xs text-slate-500 adresa-cell max-w-[160px]" title="${esc(p.adresa_facturare || "")}"><span class="adresa-clamp">${esc(p.adresa_facturare || "—")}</span></td>
+    ${showComenziFields ? `<td class="px-3 py-3 text-xs text-slate-500">${esc(p.telefon || "—")}</td>` : ""}
+    ${showComenziFields ? `<td class="px-3 py-3 text-xs text-slate-500 adresa-cell max-w-[160px]" title="${esc(p.adresa_facturare || "")}"><span class="adresa-clamp">${esc(p.adresa_facturare || "—")}</span></td>` : ""}
     <td class="px-3 py-3 whitespace-nowrap">
       ${p.vanzare_directa && !p.vandut ? `<button type="button" data-vinde-produs="${p.id}" class="vinde-produs-btn rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100">Vinde produsul</button>` : ""}
     </td>
@@ -10665,31 +10669,40 @@
 
           function construiesteQuerySubset(subset) {
             let qs = supa.from("produse").select("*");
+            const evenimentActiv = state.returnat || state.relocat;
             if (subset === "stoc_central") {
               qs = qs.is("magazin_id", null).eq("vandut", false);
-              qs = qs
-                .gte("created_at", state.start + "T00:00:00")
-                .lte("created_at", state.end + "T23:59:59");
+              if (!evenimentActiv) {
+                qs = qs
+                  .gte("created_at", state.start + "T00:00:00")
+                  .lte("created_at", state.end + "T23:59:59");
+              }
             } else if (subset === "stoc_magazine") {
               qs = idsEfective
                 ? qs.in("magazin_id", idsEfective)
                 : qs.not("magazin_id", "is", null);
               qs = qs.eq("vandut", false);
-              qs = qs
-                .gte("data_comenzii", state.start)
-                .lte("data_comenzii", state.end);
+              if (!evenimentActiv) {
+                qs = qs
+                  .gte("data_comenzii", state.start)
+                  .lte("data_comenzii", state.end);
+              }
             } else if (subset === "vandute") {
               if (idsEfective) qs = qs.in("magazin_id", idsEfective);
               qs = qs.eq("vandut", true);
-              qs = qs
-                .gte("data_vanzare", state.start + "T00:00:00")
-                .lte("data_vanzare", state.end + "T23:59:59");
+              if (!evenimentActiv) {
+                qs = qs
+                  .gte("data_vanzare", state.start + "T00:00:00")
+                  .lte("data_vanzare", state.end + "T23:59:59");
+              }
             } else {
               // toate
               if (idsEfective) qs = qs.in("magazin_id", idsEfective);
-              qs = qs
-                .gte("created_at", state.start + "T00:00:00")
-                .lte("created_at", state.end + "T23:59:59");
+              if (!evenimentActiv) {
+                qs = qs
+                  .gte("created_at", state.start + "T00:00:00")
+                  .lte("created_at", state.end + "T23:59:59");
+              }
             }
             if (state.categorie) qs = qs.eq("categorie", state.categorie);
             if (state.marca) qs = qs.ilike("marca", `%${state.marca}%`);
@@ -10704,12 +10717,18 @@
             else if (state.civ === "nu") qs = qs.eq("civ", false);
             if (state.returnat && state.relocat) {
               qs = qs.or(
-                "data_ultimului_retur.not.is.null,data_ultimei_relocari.not.is.null",
+                `and(data_ultimului_retur.gte.${state.start}T00:00:00,data_ultimului_retur.lte.${state.end}T23:59:59),and(data_ultimei_relocari.gte.${state.start}T00:00:00,data_ultimei_relocari.lte.${state.end}T23:59:59)`,
               );
             } else if (state.returnat) {
-              qs = qs.not("data_ultimului_retur", "is", null);
+              qs = qs
+                .not("data_ultimului_retur", "is", null)
+                .gte("data_ultimului_retur", state.start + "T00:00:00")
+                .lte("data_ultimului_retur", state.end + "T23:59:59");
             } else if (state.relocat) {
-              qs = qs.not("data_ultimei_relocari", "is", null);
+              qs = qs
+                .not("data_ultimei_relocari", "is", null)
+                .gte("data_ultimei_relocari", state.start + "T00:00:00")
+                .lte("data_ultimei_relocari", state.end + "T23:59:59");
             }
             if (filtruVanzareDirecta) qs = qs.eq("vanzare_directa", true);
             if (orFilter) qs = qs.or(orFilter);
