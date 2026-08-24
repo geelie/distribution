@@ -10331,7 +10331,12 @@
         );
       }
 
-      function randJurnalHtml(r, nr, hartaProfile, hartaComenzi) {
+      function extrageIdProdusDinDetalii(detalii) {
+        const m = /ID produs:\s*([^\s·,→]+)/i.exec(detalii || "");
+        return m ? m[1] : null;
+      }
+
+      function randJurnalHtml(r, nr, hartaProfile, hartaComenzi, hartaProduse) {
         const profilActiune = hartaProfile ? hartaProfile[r.efectuat_de] : null;
         let utilizatorText = r.efectuat_de_nume || "—";
         if (
@@ -10342,14 +10347,19 @@
           utilizatorText += ` · ${profilActiune.filiala}`;
         }
 
-        let tipHtml = esc(tipEntitateJurnalLabel(r.tip_entitate));
-        if (r.tip_entitate === "comanda") {
+        const tipHtml = esc(tipEntitateJurnalLabel(r.tip_entitate));
+
+        let idNrText = "";
+        if (r.tip_entitate === "produs") {
+          const idProdus =
+            (hartaProduse ? hartaProduse[r.entitate_id] : null) ||
+            extrageIdProdusDinDetalii(r.detalii);
+          if (idProdus) idNrText = idProdus;
+        } else if (r.tip_entitate === "comanda") {
           const numarComanda = hartaComenzi
             ? hartaComenzi[r.entitate_id]
             : null;
-          if (numarComanda) {
-            tipHtml += `<div class="text-[11px] text-slate-400 mt-0.5">${esc(numarComanda)}</div>`;
-          }
+          if (numarComanda) idNrText = numarComanda;
         }
 
         return `
@@ -10358,6 +10368,7 @@
       <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-600">${esc(jurnalDataOraText(r.created_at))}</td>
       <td class="px-3 py-2 text-xs">${esc(utilizatorText)}</td>
       <td class="px-3 py-2 text-xs">${tipHtml}</td>
+      <td class="px-3 py-2 text-xs font-mono text-slate-600">${esc(idNrText)}</td>
       <td class="px-3 py-2 text-xs font-medium">${esc(r.actiune || "—")}</td>
       <td class="px-3 py-2 text-xs text-slate-500">${esc(r.detalii || "—")}</td>
     </tr>`;
@@ -10370,11 +10381,63 @@
           toast(e.message || "Nu s-a putut încărca modulul Excel.", true);
           throw e;
         }
+
+        const idComenziExport = Array.from(
+          new Set(
+            randuri
+              .filter((r) => r.tip_entitate === "comanda")
+              .map((r) => r.entitate_id),
+          ),
+        );
+        const hartaComenziExport = {};
+        if (idComenziExport.length) {
+          const { data: comenziExport } = await supa
+            .from("comenzi")
+            .select("id, numar_comanda")
+            .in("id", idComenziExport);
+          (comenziExport || []).forEach((c) => {
+            hartaComenziExport[c.id] = c.numar_comanda;
+          });
+        }
+
+        const idProduseExport = Array.from(
+          new Set(
+            randuri
+              .filter((r) => r.tip_entitate === "produs")
+              .map((r) => r.entitate_id),
+          ),
+        );
+        const hartaProduseExport = {};
+        if (idProduseExport.length) {
+          const { data: produseExport } = await supa
+            .from("produse")
+            .select("id, id_produs")
+            .in("id", idProduseExport);
+          (produseExport || []).forEach((p) => {
+            hartaProduseExport[p.id] = p.id_produs;
+          });
+        }
+
+        function idNrPentruExport(r) {
+          if (r.tip_entitate === "produs") {
+            return (
+              hartaProduseExport[r.entitate_id] ||
+              extrageIdProdusDinDetalii(r.detalii) ||
+              ""
+            );
+          }
+          if (r.tip_entitate === "comanda") {
+            return hartaComenziExport[r.entitate_id] || "";
+          }
+          return "";
+        }
+
         const antete = [
           "Nr. crt.",
           "Dată/Oră",
           "Utilizator",
           "Tip entitate",
+          "ID/Nr.",
           "Acțiune",
           "Detalii",
         ];
@@ -10383,6 +10446,7 @@
           jurnalDataOraText(r.created_at),
           r.efectuat_de_nume || "",
           tipEntitateJurnalLabel(r.tip_entitate),
+          idNrPentruExport(r),
           r.actiune || "",
           r.detalii || "",
         ]);
@@ -10550,6 +10614,24 @@
             hartaComenzi[c.id] = c.numar_comanda;
           });
         }
+
+        const idProduseAfisate = Array.from(
+          new Set(
+            (data || [])
+              .filter((r) => r.tip_entitate === "produs")
+              .map((r) => r.entitate_id),
+          ),
+        );
+        const hartaProduse = {};
+        if (idProduseAfisate.length) {
+          const { data: produsePentruJurnal } = await supa
+            .from("produse")
+            .select("id, id_produs")
+            .in("id", idProduseAfisate);
+          (produsePentruJurnal || []).forEach((p) => {
+            hartaProduse[p.id] = p.id_produs;
+          });
+        }
         if (isStaleRender(myGen)) return;
 
         const jurnalLabel = (txt) =>
@@ -10590,6 +10672,7 @@
               <th class="px-3 py-2 font-medium">Dată/Oră</th>
               <th class="px-3 py-2 font-medium">Utilizator</th>
               <th class="px-3 py-2 font-medium">Tip</th>
+              <th class="px-3 py-2 font-medium">ID/Nr.</th>
               <th class="px-3 py-2 font-medium">Acțiune</th>
               <th class="px-3 py-2 font-medium">Detalii</th>
             </tr>
@@ -10604,10 +10687,11 @@
                         from + i + 1,
                         hartaProfile,
                         hartaComenzi,
+                        hartaProduse,
                       ),
                     )
                     .join("")
-                : `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400 text-sm">Niciun rezultat pentru filtrele curente.</td></tr>`
+                : `<tr><td colspan="7" class="px-3 py-6 text-center text-slate-400 text-sm">Niciun rezultat pentru filtrele curente.</td></tr>`
             }
           </tbody>
         </table>
