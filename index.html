@@ -1712,7 +1712,11 @@
 
       function bindGlobalSearch() {
         const wrap = document.getElementById("global-search-wrap");
-        if (wrap) wrap.classList.toggle("hidden", currentTabKey === "acasa");
+        if (wrap)
+          wrap.classList.toggle(
+            "hidden",
+            currentTabKey === "acasa" || currentTabKey === "jurnal-activitati",
+          );
         const input = document.getElementById("global-search-input");
         if (!input) return;
         input.value = tabSearchTerms[currentTabKey] || "";
