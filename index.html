@@ -968,6 +968,7 @@
             { key: "comenzi", label: "Comenzi" },
             { key: "baterii", label: "Încărcare baterii" },
             { key: "statistici", label: "Statistici" },
+            { key: "jurnal-activitati", label: "Jurnal de activități" },
           ];
         if (role === "superadmin")
           return [
@@ -979,6 +980,7 @@
             { key: "comenzi", label: "Comenzi" },
             { key: "baterii", label: "Încărcare baterii" },
             { key: "statistici", label: "Statistici" },
+            { key: "jurnal-activitati", label: "Jurnal de activități" },
             { key: "aprobari", label: "Aprobări" },
             { key: "utilizatori", label: "Administrare utilizatori" },
           ];
@@ -1000,6 +1002,8 @@
           renderAcasa(content);
         } else if (key === "utilizatori") {
           renderUserAdmin(content);
+        } else if (key === "jurnal-activitati") {
+          renderJurnalActivitati(content);
         } else if (key === "depozit") {
           renderDepozitCentral(content);
         } else if (key === "antedepozit-import") {
@@ -1824,6 +1828,8 @@
             btn.disabled = true;
             btn.textContent = "Se salvează...";
 
+            const adresaVeche = p.adresa_facturare || null;
+
             const { error } = await supa
               .from("profiles")
               .update({
@@ -1839,6 +1845,15 @@
               btn.disabled = false;
               btn.textContent = "Salvează";
               return;
+            }
+
+            if (adresaVeche !== value) {
+              inregistreazaLog(
+                "profil",
+                p.id,
+                "Schimbare adresă de facturare",
+                `${p.email}: "${adresaVeche || "—"}" → "${value || "—"}"`,
+              );
             }
 
             p.adresa_facturare = value;
@@ -8066,6 +8081,14 @@
 
             deleteBtn.disabled = true;
             deleteBtn.textContent = "Se șterge...";
+            // Logat înainte de ștergerea efectivă, ca acțiunea să rămână
+            // înregistrată chiar dacă ștergerea ar eșua imediat după.
+            inregistreazaLog(
+              "profil",
+              p.id,
+              "Ștergere utilizator",
+              `${p.email} (${roleLabelText(p.role)})`,
+            );
             const { data, error } = await supa.functions.invoke("delete-user", {
               body: { target_id: p.id },
             });
@@ -8118,6 +8141,13 @@
           const telefon = telefonInput.value.trim() || null;
           const filiala = filialaInput.value.trim() || null;
 
+          // Valori dinainte de salvare (pentru jurnalul de activități) —
+          // p reflectă încă starea din baza de date la momentul randării.
+          const roleVechi = p.role || null;
+          const numeVechi = p.nume || null;
+          const telefonVechi = p.telefon || null;
+          const filialaVechi = p.filiala || null;
+
           const { error: upErr } = await supa
             .from("profiles")
             .update({
@@ -8136,11 +8166,70 @@
             return;
           }
 
+          if (roleVechi !== role) {
+            inregistreazaLog(
+              "profil",
+              p.id,
+              "Schimbare rol",
+              `${p.email}: ${roleVechi ? roleLabelText(roleVechi) : "Fără rol"} → ${role ? roleLabelText(role) : "Fără rol"}`,
+            );
+          }
+          if (numeVechi !== nume) {
+            inregistreazaLog(
+              "profil",
+              p.id,
+              "Schimbare nume",
+              `${p.email}: "${numeVechi || "—"}" → "${nume || "—"}"`,
+            );
+          }
+          if (telefonVechi !== telefon) {
+            inregistreazaLog(
+              "profil",
+              p.id,
+              "Schimbare telefon",
+              `${p.email}: "${telefonVechi || "—"}" → "${telefon || "—"}"`,
+            );
+          }
+          if (filialaVechi !== filiala) {
+            inregistreazaLog(
+              "profil",
+              p.id,
+              "Schimbare filială",
+              `${p.email}: "${filialaVechi || "—"}" → "${filiala || "—"}"`,
+            );
+          }
+
           const checkedMagazine = magBtn
             ? Array.from(magBtn._selectedIds || [])
             : [];
 
+          function labelMagazinPentruLog(magId) {
+            const m = (allProfiles || []).find((ap) => ap.id === magId);
+            return m ? m.nume || m.email : magId;
+          }
+          function logRealocareMagazine(idsVechi, idsNoi) {
+            const adaugate = idsNoi.filter((id) => !idsVechi.includes(id));
+            const eliminate = idsVechi.filter((id) => !idsNoi.includes(id));
+            if (adaugate.length) {
+              inregistreazaLog(
+                "profil",
+                p.id,
+                "Alocare magazine",
+                `${p.email}: + ${adaugate.map(labelMagazinPentruLog).join(", ")}`,
+              );
+            }
+            if (eliminate.length) {
+              inregistreazaLog(
+                "profil",
+                p.id,
+                "Dealocare magazine",
+                `${p.email}: − ${eliminate.map(labelMagazinPentruLog).join(", ")}`,
+              );
+            }
+          }
+
           if (role === "agent") {
+            logRealocareMagazine(assignedIds, checkedMagazine);
             await supa.from("agent_magazine").delete().eq("agent_id", p.id);
             if (checkedMagazine.length) {
               const rows = checkedMagazine.map((magId) => ({
@@ -8157,6 +8246,7 @@
                 );
             }
           } else if (role === "magazin_hub") {
+            logRealocareMagazine(assignedIds, checkedMagazine);
             await supa.from("hub_magazine").delete().eq("hub_id", p.id);
             if (checkedMagazine.length) {
               const rows = checkedMagazine.map((magId) => ({
@@ -10156,6 +10246,517 @@
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
+      }
+
+      // ==================== Jurnal de activități (Admin/Super Admin) ====================
+      // Reutilizează integral tabelul jurnal_actiuni și funcția inregistreazaLog()
+      // deja existente (folosite anterior doar per-entitate, în modalul LOG).
+      // Acest bloc adaugă o listă globală, filtrabilă, exportabilă și cu
+      // arhivare lunară opțională — fără să modifice nimic din ce exista.
+
+      function jurnalActivitatiStateImplicit() {
+        const azi = new Date();
+        const iso = (d) => d.toISOString().slice(0, 10);
+        const oLunaInUrma = new Date(azi);
+        oLunaInUrma.setMonth(oLunaInUrma.getMonth() - 1);
+        return {
+          start: iso(oLunaInUrma),
+          end: iso(azi),
+          utilizatorNume: "",
+          cuvantCheie: "",
+        };
+      }
+      let jurnalActivitatiState = null;
+
+      function intervalLunaTrecutaJurnal() {
+        const azi = new Date();
+        const iso = (d) => d.toISOString().slice(0, 10);
+        const inceput = new Date(azi.getFullYear(), azi.getMonth() - 1, 1);
+        const sfarsit = new Date(azi.getFullYear(), azi.getMonth(), 0);
+        return { start: iso(inceput), end: iso(sfarsit) };
+      }
+
+      function tipEntitateJurnalLabel(tip) {
+        const map = {
+          produs: "Produs",
+          comanda: "Comandă",
+          profil: "Utilizator",
+          jurnal: "Arhivare jurnal",
+        };
+        return map[tip] || tip || "—";
+      }
+
+      function construiesteQueryJurnal(state) {
+        let q = supa.from("jurnal_actiuni").select("*", { count: "exact" });
+        if (state.start) q = q.gte("created_at", state.start + "T00:00:00");
+        if (state.end) q = q.lte("created_at", state.end + "T23:59:59");
+        const numeVal = (state.utilizatorNume || "").trim();
+        if (numeVal) {
+          q = q.ilike(
+            "efectuat_de_nume",
+            `%${numeVal.replace(/[%_]/g, (m) => "\\" + m)}%`,
+          );
+        }
+        // Notă: cuvântul cheie NU se mai filtrează aici (la nivel de bază de
+        // date), ci în JS, ca să poată ignora diacriticele — vezi
+        // stripDiacritice()/randJurnalPotrivesteCuvantCheie() mai jos.
+        return q.order("created_at", { ascending: false });
+      }
+
+      // Elimină diacriticele + normalizează la litere mici, pentru o
+      // căutare care tratează "preț" ca "pret", "Vânzare" ca "Vanzare" etc.
+      function stripDiacritice(str) {
+        return (str || "")
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .toLowerCase();
+      }
+
+      function randJurnalPotrivesteCuvantCheie(r, cuvantNormalizat) {
+        if (!cuvantNormalizat) return true;
+        const text = stripDiacritice(`${r.actiune || ""} ${r.detalii || ""}`);
+        return text.includes(cuvantNormalizat);
+      }
+
+      function jurnalDataOraText(createdAt) {
+        const d = new Date(createdAt);
+        return (
+          d.toLocaleDateString("ro-RO") +
+          " " +
+          d.toLocaleTimeString("ro-RO", { hour: "2-digit", minute: "2-digit" })
+        );
+      }
+
+      function randJurnalHtml(r, nr, hartaProfile, hartaComenzi) {
+        const profilActiune = hartaProfile ? hartaProfile[r.efectuat_de] : null;
+        let utilizatorText = r.efectuat_de_nume || "—";
+        if (
+          profilActiune &&
+          profilActiune.role === "magazin" &&
+          profilActiune.filiala
+        ) {
+          utilizatorText += ` · ${profilActiune.filiala}`;
+        }
+
+        let tipHtml = esc(tipEntitateJurnalLabel(r.tip_entitate));
+        if (r.tip_entitate === "comanda") {
+          const numarComanda = hartaComenzi
+            ? hartaComenzi[r.entitate_id]
+            : null;
+          if (numarComanda) {
+            tipHtml += `<div class="text-[11px] text-slate-400 mt-0.5">${esc(numarComanda)}</div>`;
+          }
+        }
+
+        return `
+    <tr class="border-b last:border-0 align-top" style="border-color:var(--line)">
+      <td class="px-2 py-2 text-slate-400 text-xs">${nr}</td>
+      <td class="px-3 py-2 whitespace-nowrap text-xs text-slate-600">${esc(jurnalDataOraText(r.created_at))}</td>
+      <td class="px-3 py-2 text-xs">${esc(utilizatorText)}</td>
+      <td class="px-3 py-2 text-xs">${tipHtml}</td>
+      <td class="px-3 py-2 text-xs font-medium">${esc(r.actiune || "—")}</td>
+      <td class="px-3 py-2 text-xs text-slate-500">${esc(r.detalii || "—")}</td>
+    </tr>`;
+      }
+
+      async function exportJurnalExcel(randuri, numeFisier) {
+        try {
+          await ensureExcelJS();
+        } catch (e) {
+          toast(e.message || "Nu s-a putut încărca modulul Excel.", true);
+          throw e;
+        }
+        const antete = [
+          "Nr. crt.",
+          "Dată/Oră",
+          "Utilizator",
+          "Tip entitate",
+          "Acțiune",
+          "Detalii",
+        ];
+        const randuriDate = randuri.map((r, i) => [
+          i + 1,
+          jurnalDataOraText(r.created_at),
+          r.efectuat_de_nume || "",
+          tipEntitateJurnalLabel(r.tip_entitate),
+          r.actiune || "",
+          r.detalii || "",
+        ]);
+
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet("Jurnal");
+        const toateRandurile = [antete, ...randuriDate];
+        ws.columns = antete.map((_, idx) => {
+          let maxLen = 8;
+          toateRandurile.forEach((r) => {
+            const len =
+              r[idx] === null || r[idx] === undefined
+                ? 0
+                : String(r[idx]).length;
+            if (len > maxLen) maxLen = len;
+          });
+          return { width: Math.min(maxLen + 2, 60) };
+        });
+        const bordurConturCelule = {
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" },
+        };
+        function stilizeazaRandJurnal(row, bold) {
+          row.eachCell({ includeEmpty: true }, (cell) => {
+            cell.alignment = {
+              horizontal: "center",
+              vertical: "middle",
+              wrapText: true,
+            };
+            cell.border = bordurConturCelule;
+            if (bold) cell.font = { bold: true };
+          });
+        }
+        stilizeazaRandJurnal(ws.addRow(antete), true);
+        randuriDate.forEach((r) => stilizeazaRandJurnal(ws.addRow(r), false));
+
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${numeFisier}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      // Șterge din jurnal EXACT rândurile deja exportate (după id), niciodată
+      // un interval recalculat separat — evită orice risc de nepotrivire
+      // între ce s-a exportat și ce se șterge. Se execută doar dacă exportul
+      // Excel a reușit deja (apelantul face export → apoi, opțional, ștergere).
+      async function stergeInregistrariJurnal(randuri, onDone) {
+        // Rândurile de tip "jurnal" (log-ul exportului/arhivării în sine)
+        // nu sunt niciodată eligibile pentru ștergere, indiferent de
+        // filtrele folosite la export — asta garantează că evidența
+        // "cine/când a exportat și șters datele" rămâne permanentă.
+        const randuriStergibile = (randuri || []).filter(
+          (r) => r.tip_entitate !== "jurnal",
+        );
+        if (!randuriStergibile.length) {
+          toast("Nu există înregistrări de șters pentru acest export.");
+          return;
+        }
+        const ok = confirm(
+          `Vei șterge definitiv ${randuriStergibile.length} înregistrări din jurnal (cele exportate mai sus). Acțiunea nu poate fi anulată. Continui?`,
+        );
+        if (!ok) return;
+        const ids = randuriStergibile.map((r) => r.id);
+        const CHUNK = 500;
+        let stersTotal = 0;
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          const bucata = ids.slice(i, i + CHUNK);
+          const { error } = await supa
+            .from("jurnal_actiuni")
+            .delete()
+            .in("id", bucata);
+          if (error) {
+            toast(
+              `Eroare la ștergere (după ${stersTotal} șterse): ${error.message}`,
+              true,
+            );
+            if (onDone) onDone();
+            return;
+          }
+          stersTotal += bucata.length;
+        }
+        toast(
+          `${stersTotal} înregistrări exportate au fost șterse din jurnal.`,
+        );
+        if (onDone) onDone();
+      }
+
+      async function renderJurnalActivitati(container) {
+        container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
+        const myGen = renderGen;
+        const pageKey = "jurnal-activitati";
+        if (!jurnalActivitatiState)
+          jurnalActivitatiState = jurnalActivitatiStateImplicit();
+        const state = jurnalActivitatiState;
+
+        const cuvantNormalizat = stripDiacritice(state.cuvantCheie);
+        let data, count, from, to;
+        if (cuvantNormalizat) {
+          // Cu cuvânt cheie activ: aducem un set mai larg (filtrat pe
+          // perioadă/utilizator la nivel de bază de date), apoi filtrăm și
+          // paginăm în JS, ca să putem ignora diacriticele.
+          const { data: setLarg, error } = await construiesteQueryJurnal(
+            state,
+          ).range(0, 4999);
+          if (isStaleRender(myGen)) return;
+          if (error) {
+            container.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(error.message)}</div>`;
+            return;
+          }
+          const filtrate = (setLarg || []).filter((r) =>
+            randJurnalPotrivesteCuvantCheie(r, cuvantNormalizat),
+          );
+          count = filtrate.length;
+          ({ from, to } = rangeFor(pageKey));
+          data = filtrate.slice(from, to + 1);
+        } else {
+          ({ from, to } = rangeFor(pageKey));
+          const {
+            data: pageData,
+            error,
+            count: cnt,
+          } = await construiesteQueryJurnal(state).range(from, to);
+          if (isStaleRender(myGen)) return;
+          if (error) {
+            container.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(error.message)}</div>`;
+            return;
+          }
+          data = pageData;
+          count = cnt;
+        }
+
+        const { data: profilesPentruNume } = await getCached("profiles");
+        const numeUtilizatoriExistenti = (profilesPentruNume || [])
+          .filter((p) => p.role)
+          .map((p) => `${p.nume || p.email} (${roleLabelText(p.role)})`);
+        const hartaProfile = {};
+        (profilesPentruNume || []).forEach((p) => {
+          hartaProfile[p.id] = p;
+        });
+
+        const idComenziAfisate = Array.from(
+          new Set(
+            (data || [])
+              .filter((r) => r.tip_entitate === "comanda")
+              .map((r) => r.entitate_id),
+          ),
+        );
+        const hartaComenzi = {};
+        if (idComenziAfisate.length) {
+          const { data: comenziPentruJurnal } = await supa
+            .from("comenzi")
+            .select("id, numar_comanda")
+            .in("id", idComenziAfisate);
+          (comenziPentruJurnal || []).forEach((c) => {
+            hartaComenzi[c.id] = c.numar_comanda;
+          });
+        }
+        if (isStaleRender(myGen)) return;
+
+        const jurnalLabel = (txt) =>
+          `<label class="block text-[11px] font-medium text-slate-500 mb-0.5">${txt}</label>`;
+        const jurnalInput = () =>
+          "w-full border rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent";
+
+        container.innerHTML = `
+    <div class="space-y-3">
+      <div class="bg-white rounded-xl border p-3 space-y-2" style="border-color:var(--line)">
+        <div class="flex flex-wrap items-end gap-2">
+          <div class="w-32">${jurnalLabel("Din data")}<input type="date" id="jurnal-start" value="${esc(state.start)}" class="${jurnalInput()}"></div>
+          <div class="w-32">${jurnalLabel("Până în data")}<input type="date" id="jurnal-end" value="${esc(state.end)}" class="${jurnalInput()}"></div>
+          <div class="w-40">${jurnalLabel("Utilizator")}
+            <div class="relative">
+              <input type="text" id="jurnal-utilizator" placeholder="Toți" autocomplete="off" value="${esc(state.utilizatorNume)}" class="${jurnalInput()}">
+              <div id="jurnal-utilizator-suggestions" class="agent-suggestions hidden absolute z-10 left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg max-h-40 overflow-y-auto text-sm" style="border-color:var(--line)"></div>
+            </div>
+          </div>
+          <div class="flex-1">${jurnalLabel("Cuvânt cheie (în acțiune/detalii)")}<input type="text" id="jurnal-cuvant" placeholder="Ex: preț, rol, ștergere..." autocomplete="off" value="${esc(state.cuvantCheie)}" class="${jurnalInput()}"></div>
+          <button id="jurnal-aplica" class="btn-primary rounded-md px-3 py-1.5 text-xs font-medium">Aplică filtre</button>
+          <button id="jurnal-reset" class="rounded-md px-3 py-1.5 text-xs font-medium border" style="border-color:var(--line)">✕ Elimină filtrele</button>
+        </div>
+        <div class="flex flex-wrap items-center gap-3 pt-2 border-t" style="border-color:var(--line)">
+          <label class="flex items-center gap-1.5 text-xs text-slate-600">
+            <input type="checkbox" id="jurnal-sterge-export" class="rounded border-slate-300"> Șterge datele exportate
+          </label>
+          <button id="jurnal-export" class="rounded-md px-3 py-1.5 text-xs font-medium border" style="border-color:var(--line)">⬇ Exportă rezultatele filtrate</button>
+          <span class="text-slate-300 text-xs">·</span>
+          <button id="jurnal-arhiveaza" class="rounded-md px-3 py-1.5 text-xs font-medium border" style="border-color:var(--line)">📦 Exportă și arhivează luna precedentă</button>
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border tabel-fix-wrap" style="border-color:var(--line)">
+        <table class="w-full text-sm min-w-[900px]">
+          <thead>
+            <tr class="text-left text-slate-500 border-b" style="border-color:var(--line)">
+              <th class="px-2 py-2 font-medium">Nr</th>
+              <th class="px-3 py-2 font-medium">Dată/Oră</th>
+              <th class="px-3 py-2 font-medium">Utilizator</th>
+              <th class="px-3 py-2 font-medium">Tip</th>
+              <th class="px-3 py-2 font-medium">Acțiune</th>
+              <th class="px-3 py-2 font-medium">Detalii</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              (data || []).length
+                ? data
+                    .map((r, i) =>
+                      randJurnalHtml(
+                        r,
+                        from + i + 1,
+                        hartaProfile,
+                        hartaComenzi,
+                      ),
+                    )
+                    .join("")
+                : `<tr><td colspan="6" class="px-3 py-6 text-center text-slate-400 text-sm">Niciun rezultat pentru filtrele curente.</td></tr>`
+            }
+          </tbody>
+        </table>
+        ${paginationBarHtml(pageKey, count)}
+      </div>
+    </div>`;
+
+        bindPaginationBar(container, pageKey, () =>
+          renderJurnalActivitati(container),
+        );
+
+        attachAgentAutocomplete(
+          document.getElementById("jurnal-utilizator"),
+          document.getElementById("jurnal-utilizator-suggestions"),
+          numeUtilizatoriExistenti,
+          () => {},
+        );
+
+        document
+          .getElementById("jurnal-aplica")
+          .addEventListener("click", () => {
+            state.start = document.getElementById("jurnal-start").value;
+            state.end = document.getElementById("jurnal-end").value;
+            state.utilizatorNume =
+              document.getElementById("jurnal-utilizator").value;
+            state.cuvantCheie = document.getElementById("jurnal-cuvant").value;
+            resetPage(pageKey);
+            renderJurnalActivitati(container);
+          });
+        document
+          .getElementById("jurnal-reset")
+          .addEventListener("click", () => {
+            jurnalActivitatiState = jurnalActivitatiStateImplicit();
+            resetPage(pageKey);
+            renderJurnalActivitati(container);
+          });
+
+        document
+          .getElementById("jurnal-export")
+          .addEventListener("click", async () => {
+            const btn = document.getElementById("jurnal-export");
+            const stergeDupa = document.getElementById(
+              "jurnal-sterge-export",
+            ).checked;
+            btn.disabled = true;
+            btn.textContent = "Se exportă...";
+            try {
+              const { data: toateRandurile, error: errExport } =
+                await construiesteQueryJurnal(state).range(0, 9999);
+              if (errExport) throw new Error(errExport.message);
+              const cuvantExport = stripDiacritice(state.cuvantCheie);
+              const randuriDeExportat = cuvantExport
+                ? (toateRandurile || []).filter((r) =>
+                    randJurnalPotrivesteCuvantCheie(r, cuvantExport),
+                  )
+                : toateRandurile || [];
+              await exportJurnalExcel(
+                randuriDeExportat,
+                `Jurnal_Activitati_${state.start || "toate"}_${state.end || "toate"}`,
+              );
+
+              // Log permanent al exportului/ștergerii jurnalului — acest
+              // rând (tip_entitate="jurnal") nu va putea fi niciodată
+              // șters de un export ulterior (vezi stergeInregistrariJurnal).
+              const detaliiExportLog =
+                `Perioadă: ${state.start || "—"} → ${state.end || "—"}` +
+                (state.utilizatorNume
+                  ? ` · Utilizator filtrat: "${state.utilizatorNume}"`
+                  : "") +
+                (state.cuvantCheie
+                  ? ` · Cuvânt cheie: "${state.cuvantCheie}"`
+                  : "") +
+                ` · ${randuriDeExportat.length} înregistrări exportate` +
+                (stergeDupa ? " · șterse după export" : "");
+              if (currentUser) {
+                await inregistreazaLog(
+                  "jurnal",
+                  currentUser.id,
+                  stergeDupa ? "Export și ștergere jurnal" : "Export jurnal",
+                  detaliiExportLog,
+                );
+              }
+
+              if (stergeDupa) {
+                await stergeInregistrariJurnal(randuriDeExportat, () =>
+                  renderJurnalActivitati(container),
+                );
+              }
+            } catch (e) {
+              toast("Eroare la export: " + (e.message || String(e)), true);
+            } finally {
+              btn.disabled = false;
+              btn.textContent = "⬇ Exportă rezultatele filtrate";
+            }
+          });
+
+        document
+          .getElementById("jurnal-arhiveaza")
+          .addEventListener("click", async () => {
+            const btn = document.getElementById("jurnal-arhiveaza");
+            const stergeDupa = document.getElementById(
+              "jurnal-sterge-export",
+            ).checked;
+            const { start, end } = intervalLunaTrecutaJurnal();
+            const ok = confirm(
+              `Exporți jurnalul din perioada ${start} → ${end}${stergeDupa ? " și îl ștergi după export" : ""}?`,
+            );
+            if (!ok) return;
+            btn.disabled = true;
+            btn.textContent = "Se arhivează...";
+            try {
+              const { data: randuriLuna, error: errLuna } =
+                await construiesteQueryJurnal({
+                  start,
+                  end,
+                  utilizatorNume: "",
+                  cuvantCheie: "",
+                }).range(0, 9999);
+              if (errLuna) throw new Error(errLuna.message);
+              await exportJurnalExcel(
+                randuriLuna || [],
+                `Jurnal_Activitati_Arhiva_${start}_${end}`,
+              );
+
+              // Log permanent al arhivării — la fel ca la exportul filtrat,
+              // acest rând nu poate fi șters niciodată de arhivări ulterioare.
+              if (currentUser) {
+                await inregistreazaLog(
+                  "jurnal",
+                  currentUser.id,
+                  stergeDupa
+                    ? "Export și ștergere arhivă lunară"
+                    : "Export arhivă lunară",
+                  `Perioadă: ${start} → ${end} · ${(randuriLuna || []).length} înregistrări exportate${stergeDupa ? " · șterse după export" : ""}`,
+                );
+              }
+
+              if (stergeDupa) {
+                await stergeInregistrariJurnal(randuriLuna || [], () =>
+                  renderJurnalActivitati(container),
+                );
+              } else {
+                toast(
+                  `Arhivă exportată: ${(randuriLuna || []).length} rânduri.`,
+                );
+              }
+            } catch (e) {
+              toast("Eroare la arhivare: " + (e.message || String(e)), true);
+            } finally {
+              btn.disabled = false;
+              btn.textContent = "📦 Exportă și arhivează luna precedentă";
+            }
+          });
       }
 
       async function renderStatisticiTab(container) {
