@@ -156,10 +156,6 @@
         );
       }
 
-      // ExcelJS e o bibliotecă mare (import/export .xlsx), folosită doar de
-      // Admin/Super Admin (Antedepozit Import, export Excel din Statistici).
-      // Se încarcă la cerere (nu la fiecare load al aplicației) ca să nu
-      // penseze toți userii (magazin/agent) cu acel download.
       let _excelJsLoadPromise = null;
       function ensureExcelJS() {
         if (window.ExcelJS) return Promise.resolve();
@@ -189,15 +185,10 @@
         setTimeout(() => el.remove(), 3500);
       }
 
-      // ---- Realtime: actualizare automată pentru toți utilizatorii, fără refresh manual ----
       let realtimeChannel = null;
       let realtimeDebounceTimer = null;
       let refreshRealtimeInAsteptare = false;
 
-      // Orice modal din aplicație e un overlay ".fixed.inset-0" adăugat în <body>
-      // (vezi renderListaEvenimentModal, renderNotificariPretModal etc.) — deci
-      // detectarea e generică, fără să fie nevoie să marcăm fiecare modal în parte.
-      // Excludem #sidebar-overlay (meniul mobil), care nu blochează o editare.
       function esteModalDeschis() {
         const overlays = document.querySelectorAll(".fixed.inset-0");
         for (const el of overlays) {
@@ -208,11 +199,6 @@
         return false;
       }
 
-      // "Administrare utilizatori" editează rolul/numele/telefonul/filiala direct
-      // în rândul din tabel (fără modal) — câmpurile respective au atributul
-      // data-field. Comparăm valoarea curentă cu valoarea inițială (defaultValue
-      // / opțiunea implicit selectată) ca să detectăm o editare nesalvată, fără
-      // să atingem renderUserAdmin/bindUserRow.
       function existaCampuriNesalvate() {
         const campuri = document.querySelectorAll("#page-content [data-field]");
         for (const el of campuri) {
@@ -245,9 +231,6 @@
         toast("Date actualizate");
       }
 
-      // Observă închiderea modalelor (overlay-urile sunt scoase din DOM prin
-      // .remove() la Salvare/Anulare) ca să aplice un refresh amânat imediat
-      // ce userul termină ce avea de editat, fără să atingem codul modalelor.
       const realtimeModalObserver = new MutationObserver(() => {
         if (refreshRealtimeInAsteptare && !existaEditareInCurs()) {
           aplicaRefreshRealtime();
@@ -255,9 +238,6 @@
       });
       realtimeModalObserver.observe(document.body, { childList: true });
 
-      // Acoperă și cazul editării inline (fără modal, ex. Administrare
-      // utilizatori): reîncearcă refresh-ul amânat dacă userul renunță la
-      // modificare (revine la valoarea inițială) sau părăsește tab-ul.
       document.addEventListener("input", () => {
         if (refreshRealtimeInAsteptare && !existaEditareInCurs()) {
           aplicaRefreshRealtime();
@@ -527,7 +507,7 @@
           .from("profiles")
           .select("*")
           .eq("id", currentUser.id)
-          .single();
+          .maybeSingle();
         if (error) {
           toast("Eroare la încărcarea profilului: " + error.message, true);
         }
@@ -1460,8 +1440,6 @@
                 : { data: [] };
               liniiComenziLunaAgent = lcla || [];
 
-              // Aceeași bază de calcul ca subsetul "Toate" din Statistici:
-              // produse.created_at + magazin_id în magazinele alocate + agent (text) ilike numele agentului.
               const agentNumeFiltru =
                 currentProfile.nume || currentProfile.email || "";
               let qsVanzariAgent = supa
@@ -1723,10 +1701,11 @@
         input.oninput = () => {
           clearTimeout(searchDebounceTimer);
           const valoare = input.value;
+          const tabLaTastare = currentTabKey;
           searchDebounceTimer = setTimeout(() => {
-            tabSearchTerms[currentTabKey] = valoare;
-            resetPage(currentTabKey);
-            dispatchTab(currentTabKey);
+            tabSearchTerms[tabLaTastare] = valoare;
+            resetPage(tabLaTastare);
+            if (currentTabKey === tabLaTastare) dispatchTab(tabLaTastare);
           }, 350);
         };
       }
@@ -2484,7 +2463,6 @@
         return distinctMarci(data || []);
       }
 
-      // Listă distinctă de modele — aceeași logică ca fetchMarciDistincte.
       async function fetchModeleDistincte() {
         const { data } = await supa.from("produse").select("model");
         return distinctModele(data || []);
@@ -3042,7 +3020,6 @@
           );
           return;
         }
-        // Elimină din selecție eventualele ID-uri care nu mai există (ex: mutate deja individual).
         const itemiValizi = itemi || [];
         const idsValide = new Set(itemiValizi.map((it) => String(it.id)));
         idsSelectate.forEach((id) => {
@@ -3401,34 +3378,51 @@
             const produseNoi = [];
             const erori = [];
             const itemiEsuati = [];
-            for (let i = 0; i < listaDeProcesat.length; i++) {
-              const item = listaDeProcesat[i];
+            let procesate = 0;
+
+            const randPentruItem = (item, idProdus) => ({
+              id_produs: idProdus,
+              agent: null,
+              categorie: categorieVal || null,
+              marca: marcaVal || null,
+              model: item.model || null,
+              culoare: item.culoare || null,
+              vin: item.vin || null,
+              pret_intrare: intrare,
+              pret_vanzare: vanzare,
+              adaos,
+              alte_costuri: alte,
+              total_fara_tva: total,
+              pret_cu_tva: cuTva,
+              pret_recomandat: pretRecomandat,
+              discount: discountVal,
+              discount_tip: addDiscountTip.value,
+              civ: civVal,
+              created_by: currentUser.id,
+            });
+
+            const finalizeazaProdusMutat = async (item, produsNou) => {
+              await supa.from("antedepozit_import").delete().eq("id", item.id);
+              antedepozitSelectie.delete(String(item.id));
+              inregistreazaLog(
+                "produs",
+                produsNou.id,
+                "Mutat din Antedepozit Import (mutare multiplă)",
+                `Model: ${item.model || "—"} · VIN: ${item.vin || "—"} · Culoare: ${item.culoare || "—"}`,
+              );
+              produseNoi.push(produsNou);
+            };
+
+            // Fallback rând-cu-rând (comportamentul original, cu reîncercare la
+            // coliziune de ID) — folosit doar dacă inserarea în lot eșuează.
+            const insereazaUnItemCuRetry = async (item) => {
               let produsNou = null;
               let error = null;
               for (let incercare = 0; incercare < 5; incercare++) {
                 const idProdus = generateProductId();
                 const rezultat = await supa
                   .from("produse")
-                  .insert({
-                    id_produs: idProdus,
-                    agent: null,
-                    categorie: categorieVal || null,
-                    marca: marcaVal || null,
-                    model: item.model || null,
-                    culoare: item.culoare || null,
-                    vin: item.vin || null,
-                    pret_intrare: intrare,
-                    pret_vanzare: vanzare,
-                    adaos,
-                    alte_costuri: alte,
-                    total_fara_tva: total,
-                    pret_cu_tva: cuTva,
-                    pret_recomandat: pretRecomandat,
-                    discount: discountVal,
-                    discount_tip: addDiscountTip.value,
-                    civ: civVal,
-                    created_by: currentUser.id,
-                  })
+                  .insert(randPentruItem(item, idProdus))
                   .select()
                   .single();
                 error = rezultat.error;
@@ -3441,26 +3435,73 @@
                 if (!error || !esteDuplicatId) break;
                 // ID produs generat coincide cu unul existent — se reîncearcă cu alt ID.
               }
-
               if (error) {
                 erori.push(
                   `${item.model || item.vin || item.id}: ${error.message}`,
                 );
                 itemiEsuati.push(item);
-                msg.textContent = `Se adaugă produsele (${i + 1}/${nCurent})...`;
-                continue;
+                return;
+              }
+              await finalizeazaProdusMutat(item, produsNou);
+            };
+
+            const MARIME_LOT = 20;
+            for (
+              let start = 0;
+              start < listaDeProcesat.length;
+              start += MARIME_LOT
+            ) {
+              const lot = listaDeProcesat.slice(start, start + MARIME_LOT);
+
+              // ID-uri unice în interiorul lotului (evită coliziuni între rândurile
+              // aceluiași lot; coliziunile cu produse deja existente în bază sunt
+              // tratate mai jos, prin fallback-ul rând-cu-rând).
+              const idPerItem = new Map();
+              const idsDinLot = new Set();
+              lot.forEach((item) => {
+                let idProdus;
+                do {
+                  idProdus = generateProductId();
+                } while (idsDinLot.has(idProdus));
+                idsDinLot.add(idProdus);
+                idPerItem.set(item, idProdus);
+              });
+
+              const randuriLot = lot.map((item) =>
+                randPentruItem(item, idPerItem.get(item)),
+              );
+
+              const rezultatLot = await supa
+                .from("produse")
+                .insert(randuriLot)
+                .select();
+
+              if (!rezultatLot.error) {
+                const produsPeIdProdus = new Map(
+                  (rezultatLot.data || []).map((r) => [r.id_produs, r]),
+                );
+                for (const item of lot) {
+                  const produsNou = produsPeIdProdus.get(idPerItem.get(item));
+                  if (!produsNou) {
+                    erori.push(
+                      `${item.model || item.vin || item.id}: produsul nu a fost regăsit după inserarea în lot`,
+                    );
+                    itemiEsuati.push(item);
+                    continue;
+                  }
+                  await finalizeazaProdusMutat(item, produsNou);
+                }
+              } else {
+                // Inserarea în lot a eșuat (de ex. coliziune de id_produs cu un
+                // produs deja existent) — se reîncearcă acest lot rând cu rând,
+                // cu aceeași robustețe ca înainte, izolând eșecurile per produs.
+                for (const item of lot) {
+                  await insereazaUnItemCuRetry(item);
+                }
               }
 
-              await supa.from("antedepozit_import").delete().eq("id", item.id);
-              antedepozitSelectie.delete(String(item.id));
-              inregistreazaLog(
-                "produs",
-                produsNou.id,
-                "Mutat din Antedepozit Import (mutare multiplă)",
-                `Model: ${item.model || "—"} · VIN: ${item.vin || "—"} · Culoare: ${item.culoare || "—"}`,
-              );
-              produseNoi.push(produsNou);
-              msg.textContent = `Se adaugă produsele (${i + 1}/${nCurent})...`;
+              procesate += lot.length;
+              msg.textContent = `Se adaugă produsele (${procesate}/${nCurent})...`;
             }
 
             itemiRamasi = itemiEsuati;
@@ -4069,33 +4110,49 @@
             btn.disabled = true;
             btn.textContent = "Se salvează...";
 
-            const { data: produsNou, error } = await supa
-              .from("produse")
-              .insert({
-                id_produs: idProdus,
-                agent: agentVal,
-                categorie: categorieVal,
-                marca:
-                  document.getElementById("add-marca").value.trim() || null,
-                model:
-                  document.getElementById("add-model").value.trim() || null,
-                culoare:
-                  document.getElementById("add-culoare").value.trim() || null,
-                vin: document.getElementById("add-vin").value.trim() || null,
-                pret_intrare: intrare,
-                pret_vanzare: vanzare,
-                adaos,
-                alte_costuri: alte,
-                total_fara_tva: total,
-                pret_cu_tva: cuTva,
-                pret_recomandat: pretRecomandat,
-                discount: discountVal,
-                discount_tip: addDiscountTip.value,
-                civ: civVal,
-                created_by: currentUser.id,
-              })
-              .select()
-              .single();
+            // Reîncercare la coliziune de id_produs (același model folosit la
+            // importul în masă din Antedepozit) — dacă ID-ul generat la
+            // deschiderea modalului a fost între timp folosit de altcineva,
+            // se regenerează și se reîncearcă în loc să eșueze direct.
+            let idProdusDeSalvat = idProdus;
+            let rezultatInsert;
+            for (let incercare = 0; incercare < 5; incercare++) {
+              rezultatInsert = await supa
+                .from("produse")
+                .insert({
+                  id_produs: idProdusDeSalvat,
+                  agent: agentVal,
+                  categorie: categorieVal,
+                  marca:
+                    document.getElementById("add-marca").value.trim() || null,
+                  model:
+                    document.getElementById("add-model").value.trim() || null,
+                  culoare:
+                    document.getElementById("add-culoare").value.trim() || null,
+                  vin: document.getElementById("add-vin").value.trim() || null,
+                  pret_intrare: intrare,
+                  pret_vanzare: vanzare,
+                  adaos,
+                  alte_costuri: alte,
+                  total_fara_tva: total,
+                  pret_cu_tva: cuTva,
+                  pret_recomandat: pretRecomandat,
+                  discount: discountVal,
+                  discount_tip: addDiscountTip.value,
+                  civ: civVal,
+                  created_by: currentUser.id,
+                })
+                .select()
+                .single();
+              const esteDuplicatId =
+                rezultatInsert.error &&
+                (rezultatInsert.error.code === "23505" ||
+                  /duplicate key/i.test(rezultatInsert.error.message || "")) &&
+                /id_produs/i.test(rezultatInsert.error.message || "");
+              if (!rezultatInsert.error || !esteDuplicatId) break;
+              idProdusDeSalvat = generateProductId();
+            }
+            const { data: produsNou, error } = rezultatInsert;
 
             if (error) {
               msg.className = "text-sm text-center text-red-600";
@@ -4687,10 +4744,6 @@
         return `<span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${cls}">${esc(plataStadiuLabel(c))}</span>`;
       }
 
-      // Punct unic de calcul pentru evoluția termenului de plată asumat la crearea comenzii.
-      // Contorizarea se oprește la achitat_integral_la (momentul achitării integrale),
-      // altfel rulează până azi. Returnează { stare, zile } unde stare este una din:
-      // "fara_termen" | "in_termen" | "depasit" | "achitat_in_termen" | "achitat_intarziat".
       function statusTermenPlata(c) {
         if (!c.termen_plata || !c.data_limita_plata)
           return { stare: "fara_termen", zile: 0 };
@@ -5378,9 +5431,9 @@
           function ajusteazaLatimileModalelorComanda(stocDeschis) {
             const card = document.getElementById("comanda-nou-card");
             const wrap = document.getElementById("comanda-stoc-central-wrap");
-            const baseRem = 56; // lățime dublă față de max-w-md (28rem), pentru modalul singur
+            const baseRem = 56;
             const remPx = 16;
-            const marginePx = 48; // marje overlay + siguranță pe orizontală
+            const marginePx = 48;
             if (!stocDeschis) {
               const latimePx = Math.min(
                 baseRem * remPx,
@@ -6859,7 +6912,10 @@
           { data: asocieri, error: asoErr },
           { data: profiles, error: profErr },
         ] = await Promise.all([
-          supa.from("hub_magazine").select("*").eq("hub_id", currentUser.id),
+          supa
+            .from("hub_magazine")
+            .select("magazin_id")
+            .eq("hub_id", currentUser.id),
           getCached("profiles"),
         ]);
         if (isStaleRender(myGen)) return;
@@ -7623,7 +7679,10 @@
           { data: asocieri, error: asoErr },
           { data: profiles, error: profErr },
         ] = await Promise.all([
-          supa.from("hub_magazine").select("*").eq("hub_id", currentUser.id),
+          supa
+            .from("hub_magazine")
+            .select("magazin_id")
+            .eq("hub_id", currentUser.id),
           getCached("profiles"),
         ]);
         if (isStaleRender(myGen)) return;
@@ -7871,7 +7930,10 @@
           { data: asocieri, error: asoErr },
           { data: profiles, error: profErr },
         ] = await Promise.all([
-          supa.from("hub_magazine").select("*").eq("hub_id", currentUser.id),
+          supa
+            .from("hub_magazine")
+            .select("magazin_id")
+            .eq("hub_id", currentUser.id),
           getCached("profiles"),
         ]);
         if (isStaleRender(myGen)) return;
@@ -8085,8 +8147,7 @@
 
             deleteBtn.disabled = true;
             deleteBtn.textContent = "Se șterge...";
-            // Logat înainte de ștergerea efectivă, ca acțiunea să rămână
-            // înregistrată chiar dacă ștergerea ar eșua imediat după.
+
             inregistreazaLog(
               "profil",
               p.id,
@@ -8144,9 +8205,6 @@
           const nume = numeInput.value.trim() || null;
           const telefon = telefonInput.value.trim() || null;
           const filiala = filialaInput.value.trim() || null;
-
-          // Valori dinainte de salvare (pentru jurnalul de activități) —
-          // p reflectă încă starea din baza de date la momentul randării.
           const roleVechi = p.role || null;
           const numeVechi = p.nume || null;
           const telefonVechi = p.telefon || null;
@@ -8273,9 +8331,6 @@
           btn.disabled = false;
           btn.textContent = "Salvează";
 
-          // Actualizează valoarea de referință a câmpurilor (folosită de
-          // existaCampuriNesalvate) ca rândul să nu mai apară "nesalvat"
-          // și să nu mai blocheze inutil refresh-ul automat după salvare.
           [roleSelect, numeInput, telefonInput, filialaInput].forEach((el) => {
             if (!el) return;
             if (el.tagName === "SELECT") {
@@ -8396,14 +8451,25 @@
 
       const ZILE_CICLU_BATERIE = 15;
 
+      // Formatează un obiect Date ca YYYY-MM-DD folosind componentele LOCALE
+      // (an/lună/zi), nu UTC — spre deosebire de toISOString(), care ar
+      // deplasa data cu o zi în fusuri orare cu decalaj pozitiv față de UTC
+      // (ex. România, UTC+2 vara) atunci când ora locală e aproape de miezul nopții.
+      function dataLocalaISO(d) {
+        const an = d.getFullYear();
+        const luna = String(d.getMonth() + 1).padStart(2, "0");
+        const zi = String(d.getDate()).padStart(2, "0");
+        return `${an}-${luna}-${zi}`;
+      }
+
       function adaugaZileData(dataISO, zile) {
         const d = new Date(dataISO + "T00:00:00");
         d.setDate(d.getDate() + zile);
-        return d.toISOString().slice(0, 10);
+        return dataLocalaISO(d);
       }
 
       function astaziISO() {
-        return new Date().toISOString().slice(0, 10);
+        return dataLocalaISO(new Date());
       }
 
       function diferentaZile(dataA, dataB) {
@@ -8851,7 +8917,10 @@
           { data: asocieri, error: asoErr },
           { data: profiles, error: profErr },
         ] = await Promise.all([
-          supa.from("hub_magazine").select("*").eq("hub_id", currentUser.id),
+          supa
+            .from("hub_magazine")
+            .select("magazin_id")
+            .eq("hub_id", currentUser.id),
           getCached("profiles"),
         ]);
         if (asoErr || profErr) {
@@ -9564,7 +9633,10 @@
           { data: asocieri, error: asoErr },
           { data: profiles, error: profErr },
         ] = await Promise.all([
-          supa.from("hub_magazine").select("*").eq("hub_id", currentUser.id),
+          supa
+            .from("hub_magazine")
+            .select("magazin_id")
+            .eq("hub_id", currentUser.id),
           getCached("profiles"),
         ]);
         if (asoErr || profErr) {
@@ -9714,8 +9786,8 @@
         const oLunaInUrma = new Date(azi);
         oLunaInUrma.setMonth(oLunaInUrma.getMonth() - 1);
         return {
-          tip: "produse", // "produse" | "comenzi"
-          subTipuri: ["toate"], // subset din: "toate" | "stoc_central" | "stoc_magazine" | "vandute" — "toate" e mereu exclusiv, celelalte se pot combina (multi-select)
+          tip: "produse",
+          subTipuri: ["toate"],
           perioada: "",
           start: iso(oLunaInUrma),
           end: iso(azi),
@@ -9725,15 +9797,15 @@
           marca: "",
           model: "",
           culoare: "",
-          garantieExtinsa: "", // "" (Toate) | "da" | "nu"
-          civ: "", // "" (Toate) | "da" | "nu"
-          termenPlata: "", // string numeric, gol = filtrul e ignorat
-          stadiuPlata: "", // "" (Toate) | "integral" | "partial" | "neachitat"
-          stadiuTermen: "", // "" (Toate) | "depasit" | "achitat_intarziat"
-          dropshipping: false, // buton activ/inactiv — filtrează doar comenzile de tip Dropshipping
+          garantieExtinsa: "",
+          civ: "",
+          termenPlata: "",
+          stadiuPlata: "",
+          stadiuTermen: "",
+          dropshipping: false,
           afiseazaTotal: false,
-          returnat: false, // buton activ/inactiv — filtrează produsele care au fost returnate
-          relocat: false, // buton activ/inactiv — filtrează produsele care au fost relocate (retragere din magazin/hub)
+          returnat: false,
+          relocat: false,
         };
       }
 
@@ -9999,10 +10071,8 @@
         }
       }
 
-      // Agregă comenzile deja filtrate (depășit / achitat cu întârziere) pe magazin/hub,
-      // pentru evidența magazinelor/hub-urilor care nu respectă termenele de plată asumate.
       function calculeazaTopMagazine(comenzi, magazine) {
-        const harta = new Map(); // cheie (magazinId sau "vanzare_directa") -> { label, nrComenzi, zileTotal }
+        const harta = new Map();
         (comenzi || []).forEach((c) => {
           const st = statusTermenPlata(c);
           if (st.stare !== "depasit" && st.stare !== "achitat_intarziat")
@@ -10063,10 +10133,8 @@
       </div>`;
       }
 
-      // Agregă produsele deja filtrate (subset "Vândute") pe magazin/hub,
-      // pentru un top al magazinelor/hub-urilor după numărul de produse vândute.
       function calculeazaTopMagazineVanzari(produse, magazine) {
-        const harta = new Map(); // cheie (magazinId sau "vanzare_directa") -> { label, nrProduse }
+        const harta = new Map();
         (produse || []).forEach((p) => {
           const cheie = p.vanzare_directa
             ? "vanzare_directa"
@@ -10252,12 +10320,6 @@
         URL.revokeObjectURL(url);
       }
 
-      // ==================== Jurnal de activități (Admin/Super Admin) ====================
-      // Reutilizează integral tabelul jurnal_actiuni și funcția inregistreazaLog()
-      // deja existente (folosite anterior doar per-entitate, în modalul LOG).
-      // Acest bloc adaugă o listă globală, filtrabilă, exportabilă și cu
-      // arhivare lunară opțională — fără să modifice nimic din ce exista.
-
       function jurnalActivitatiStateImplicit() {
         const azi = new Date();
         const iso = (d) => d.toISOString().slice(0, 10);
@@ -10301,14 +10363,10 @@
             `%${numeVal.replace(/[%_]/g, (m) => "\\" + m)}%`,
           );
         }
-        // Notă: cuvântul cheie NU se mai filtrează aici (la nivel de bază de
-        // date), ci în JS, ca să poată ignora diacriticele — vezi
-        // stripDiacritice()/randJurnalPotrivesteCuvantCheie() mai jos.
+
         return q.order("created_at", { ascending: false });
       }
 
-      // Elimină diacriticele + normalizează la litere mici, pentru o
-      // căutare care tratează "preț" ca "pret", "Vânzare" ca "Vanzare" etc.
       function stripDiacritice(str) {
         return (str || "")
           .normalize("NFD")
@@ -10499,15 +10557,7 @@
         URL.revokeObjectURL(url);
       }
 
-      // Șterge din jurnal EXACT rândurile deja exportate (după id), niciodată
-      // un interval recalculat separat — evită orice risc de nepotrivire
-      // între ce s-a exportat și ce se șterge. Se execută doar dacă exportul
-      // Excel a reușit deja (apelantul face export → apoi, opțional, ștergere).
       async function stergeInregistrariJurnal(randuri, onDone) {
-        // Rândurile de tip "jurnal" (log-ul exportului/arhivării în sine)
-        // nu sunt niciodată eligibile pentru ștergere, indiferent de
-        // filtrele folosite la export — asta garantează că evidența
-        // "cine/când a exportat și șters datele" rămâne permanentă.
         const randuriStergibile = (randuri || []).filter(
           (r) => r.tip_entitate !== "jurnal",
         );
@@ -10555,9 +10605,6 @@
         const cuvantNormalizat = stripDiacritice(state.cuvantCheie);
         let data, count, from, to;
         if (cuvantNormalizat) {
-          // Cu cuvânt cheie activ: aducem un set mai larg (filtrat pe
-          // perioadă/utilizator la nivel de bază de date), apoi filtrăm și
-          // paginăm în JS, ca să putem ignora diacriticele.
           const { data: setLarg, error } = await construiesteQueryJurnal(
             state,
           ).range(0, 4999);
@@ -10753,9 +10800,6 @@
                 `Jurnal_Activitati_${state.start || "toate"}_${state.end || "toate"}`,
               );
 
-              // Log permanent al exportului/ștergerii jurnalului — acest
-              // rând (tip_entitate="jurnal") nu va putea fi niciodată
-              // șters de un export ulterior (vezi stergeInregistrariJurnal).
               const detaliiExportLog =
                 `Perioadă: ${state.start || "—"} → ${state.end || "—"}` +
                 (state.utilizatorNume
@@ -10816,8 +10860,6 @@
                 `Jurnal_Activitati_Arhiva_${start}_${end}`,
               );
 
-              // Log permanent al arhivării — la fel ca la exportul filtrat,
-              // acest rând nu poate fi șters niciodată de arhivări ulterioare.
               if (currentUser) {
                 await inregistreazaLog(
                   "jurnal",
@@ -11246,7 +11288,6 @@
               resultsEl.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(error.message)}</div>`;
               return;
             }
-            // Rafinare exactă client-side (statusTermenPlata acoperă și cazul "achitat exact la limită", care nu e "întârziat")
             if (state.stadiuTermen) {
               comenzi = (comenzi || []).filter(
                 (c) => statusTermenPlata(c).stare === state.stadiuTermen,
