@@ -918,6 +918,7 @@
             { key: "comenzi", label: "Comenzile mele" },
             { key: "baterii", label: "Încărcare baterii" },
             { key: "statistici", label: "Statistici" },
+            { key: "documentatie", label: "Documentație" },
           ];
         if (role === "magazin_hub")
           return [
@@ -928,6 +929,7 @@
             { key: "comenzi", label: "Comenzi" },
             { key: "baterii", label: "Încărcare baterii" },
             { key: "statistici", label: "Statistici" },
+            { key: "documentatie", label: "Documentație" },
           ];
         if (role === "agent")
           return [
@@ -937,6 +939,7 @@
             { key: "vanzari-alocat", label: "Vânzări magazine alocate" },
             { key: "baterii", label: "Încărcare baterii" },
             { key: "statistici", label: "Statistici" },
+            { key: "documentatie", label: "Documentație" },
           ];
         if (role === "admin")
           return [
@@ -949,6 +952,7 @@
             { key: "baterii", label: "Încărcare baterii" },
             { key: "statistici", label: "Statistici" },
             { key: "jurnal-activitati", label: "Jurnal de activități" },
+            { key: "documentatie", label: "Documentație" },
           ];
         if (role === "superadmin")
           return [
@@ -963,6 +967,7 @@
             { key: "jurnal-activitati", label: "Jurnal de activități" },
             { key: "aprobari", label: "Aprobări" },
             { key: "utilizatori", label: "Administrare utilizatori" },
+            { key: "documentatie", label: "Documentație" },
           ];
         return common;
       }
@@ -984,6 +989,8 @@
           renderUserAdmin(content);
         } else if (key === "jurnal-activitati") {
           renderJurnalActivitati(content);
+        } else if (key === "documentatie") {
+          renderDocumentatie(content);
         } else if (key === "depozit") {
           renderDepozitCentral(content);
         } else if (key === "antedepozit-import") {
@@ -1697,6 +1704,10 @@
           );
         const input = document.getElementById("global-search-input");
         if (!input) return;
+        input.placeholder =
+          currentTabKey === "documentatie"
+            ? "Caută după marcă, model, etc.."
+            : "Caută...";
         input.value = tabSearchTerms[currentTabKey] || "";
         input.oninput = () => {
           clearTimeout(searchDebounceTimer);
@@ -10592,6 +10603,296 @@
           `${stersTotal} înregistrări exportate au fost șterse din jurnal.`,
         );
         if (onDone) onDone();
+      }
+
+      // ==================== Documentație produse ====================
+      const BUCKET_DOCUMENTATIE = "documente-produse";
+      let documentatieTipFiltru = "toate";
+
+      const TIPURI_DOCUMENTATIE = {
+        garantii: "Garanții",
+        manuale: "Manuale de utilizare",
+      };
+
+      function labelTipDocumentatie(tip) {
+        return TIPURI_DOCUMENTATIE[tip] || tip;
+      }
+
+      async function incarcaDocumentProdus(file, denumire, tip) {
+        const extensie = (file.name.split(".").pop() || "pdf").toLowerCase();
+        const path = `${tip}/${crypto.randomUUID()}_${Date.now()}.${extensie}`;
+        const { error: storageErr } = await supa.storage
+          .from(BUCKET_DOCUMENTATIE)
+          .upload(path, file, { upsert: true, contentType: file.type });
+        if (storageErr) throw storageErr;
+
+        const { error: dbErr } = await supa.from("documente_produse").insert({
+          denumire,
+          tip,
+          path,
+          nume_fisier: file.name,
+          incarcat_de: currentUser.id,
+        });
+        if (dbErr) throw dbErr;
+      }
+
+      async function obtineUrlSemnatDocumentatie(path) {
+        const { data, error } = await supa.storage
+          .from(BUCKET_DOCUMENTATIE)
+          .createSignedUrl(path, 300);
+        if (error) throw error;
+        return data.signedUrl;
+      }
+
+      async function cautaDocumenteProduse(tipFiltru, termen, from, to) {
+        let query = supa
+          .from("documente_produse")
+          .select("id, denumire, tip, path, nume_fisier", { count: "exact" });
+        if (tipFiltru && tipFiltru !== "toate")
+          query = query.eq("tip", tipFiltru);
+        const t = (termen || "").trim();
+        if (t) {
+          const escapat = t.replace(/[%_]/g, (m) => "\\" + m);
+          query = query.ilike("denumire", `%${escapat}%`);
+        }
+        return query.order("denumire", { ascending: true }).range(from, to);
+      }
+
+      async function redenumesteDocumentProdus(id, denumireNoua) {
+        const { error } = await supa
+          .from("documente_produse")
+          .update({ denumire: denumireNoua })
+          .eq("id", id);
+        if (error) throw error;
+      }
+
+      async function stergeDocumentProdus(doc) {
+        const { error: storageErr } = await supa.storage
+          .from(BUCKET_DOCUMENTATIE)
+          .remove([doc.path]);
+        if (storageErr) throw storageErr;
+        const { error: dbErr } = await supa
+          .from("documente_produse")
+          .delete()
+          .eq("id", doc.id);
+        if (dbErr) throw dbErr;
+      }
+
+      function deschideModalAdaugaDocument(refresh) {
+        const overlay = document.createElement("div");
+        overlay.id = "documentatie-adauga-overlay";
+        overlay.className =
+          "fixed inset-0 z-40 flex items-center justify-center px-4 py-8 overflow-y-auto";
+        overlay.style.background = "rgba(15,20,25,0.55)";
+        overlay.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md fade-in my-auto relative">
+      <button type="button" id="documentatie-adauga-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none" title="Închide">✕</button>
+      <h2 class="text-lg font-bold mb-1 pr-6">Adaugă document</h2>
+      <p class="text-sm text-slate-500 mb-5">Certificat de garanție, manual de utilizare sau alt document al produsului.</p>
+      <form id="form-documentatie-adauga" class="space-y-4">
+        <div>${fieldLabel("Tip document")}
+          <select id="documentatie-adauga-tip" required class="${inputBase()}">
+            <option value="garantii">Garanții</option>
+            <option value="manuale">Manuale de utilizare</option>
+          </select>
+        </div>
+        <div>${fieldLabel("Denumire document")}<input type="text" id="documentatie-adauga-denumire" required placeholder="ex: Certificat garanție GE500" class="${inputBase()}"></div>
+        <div>${fieldLabel("Fișier (PDF)")}<input type="file" id="documentatie-adauga-fisier" required accept="application/pdf" class="${inputBase()} text-slate-600"></div>
+        <div class="flex justify-center pt-1">
+          <button type="submit" class="btn-primary rounded-lg py-2.5 px-10 text-sm">Salvează document</button>
+        </div>
+        <p id="documentatie-adauga-msg" class="text-sm text-center"></p>
+      </form>
+    </div>`;
+        document.body.appendChild(overlay);
+
+        document
+          .getElementById("documentatie-adauga-close")
+          .addEventListener("click", () => overlay.remove());
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) overlay.remove();
+        });
+
+        document
+          .getElementById("form-documentatie-adauga")
+          .addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const tip = document.getElementById(
+              "documentatie-adauga-tip",
+            ).value;
+            const denumire = document
+              .getElementById("documentatie-adauga-denumire")
+              .value.trim();
+            const fisierInput = document.getElementById(
+              "documentatie-adauga-fisier",
+            );
+            const file = fisierInput.files[0];
+            const msg = document.getElementById("documentatie-adauga-msg");
+            if (!denumire || !file) return;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            msg.textContent = "Se încarcă...";
+            msg.className = "text-sm text-center text-slate-500";
+            try {
+              await incarcaDocumentProdus(file, denumire, tip);
+              overlay.remove();
+              toast("Document adăugat.");
+              refresh();
+            } catch (err) {
+              msg.textContent = "Eroare: " + err.message;
+              msg.className = "text-sm text-center text-red-600";
+              submitBtn.disabled = false;
+            }
+          });
+      }
+
+      function bindDocumentatieTableEvents(container, docuri, refresh) {
+        container.querySelectorAll("[data-doc-descarca]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const doc = docuri.find(
+              (d) => d.id === btn.getAttribute("data-doc-descarca"),
+            );
+            if (!doc) return;
+            const labelInitial = btn.textContent;
+            btn.textContent = "Se deschide...";
+            try {
+              const url = await obtineUrlSemnatDocumentatie(doc.path);
+              window.open(url, "_blank");
+            } catch (err) {
+              toast("Eroare la descărcare: " + err.message, true);
+            } finally {
+              btn.textContent = labelInitial;
+            }
+          });
+        });
+
+        container.querySelectorAll("[data-doc-redenumeste]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const doc = docuri.find(
+              (d) => d.id === btn.getAttribute("data-doc-redenumeste"),
+            );
+            if (!doc) return;
+            const denumireNoua = prompt("Denumire nouă:", doc.denumire);
+            if (denumireNoua === null) return;
+            const trimmed = denumireNoua.trim();
+            if (!trimmed || trimmed === doc.denumire) return;
+            try {
+              await redenumesteDocumentProdus(doc.id, trimmed);
+              toast("Document redenumit.");
+              refresh();
+            } catch (err) {
+              toast("Eroare la redenumire: " + err.message, true);
+            }
+          });
+        });
+
+        container.querySelectorAll("[data-doc-sterge]").forEach((btn) => {
+          btn.addEventListener("click", async () => {
+            const doc = docuri.find(
+              (d) => d.id === btn.getAttribute("data-doc-sterge"),
+            );
+            if (!doc) return;
+            const ok = confirm(
+              `Ștergi definitiv documentul "${doc.denumire}"?`,
+            );
+            if (!ok) return;
+            try {
+              await stergeDocumentProdus(doc);
+              toast("Document șters.");
+              refresh();
+            } catch (err) {
+              toast("Eroare la ștergere: " + err.message, true);
+            }
+          });
+        });
+      }
+
+      async function renderDocumentatie(container) {
+        container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
+        const myGen = renderGen;
+        const pageKey = "documentatie";
+        const poateAdministra =
+          currentProfile.role === "admin" ||
+          currentProfile.role === "superadmin";
+        const termenCautare = tabSearchTerms[currentTabKey] || "";
+
+        const { from, to } = rangeFor(pageKey);
+        const {
+          data: docuri,
+          error,
+          count,
+        } = await cautaDocumenteProduse(
+          documentatieTipFiltru,
+          termenCautare,
+          from,
+          to,
+        );
+        if (isStaleRender(myGen)) return;
+        if (error) {
+          container.innerHTML = `<div class="text-red-600 text-sm">Eroare: ${esc(error.message)}</div>`;
+          return;
+        }
+
+        const randDocument = (doc) => `
+    <tr class="border-b" style="border-color:var(--line)">
+      <td class="py-2 px-3 text-sm">${esc(doc.denumire)}</td>
+      <td class="py-2 px-3 text-right whitespace-nowrap">
+        <button type="button" data-doc-descarca="${doc.id}" class="text-xs font-medium text-[var(--teal-dark)] hover:underline mr-3">⬇ Descarcă</button>
+        ${
+          poateAdministra
+            ? `<button type="button" data-doc-redenumeste="${doc.id}" class="text-xs font-medium text-slate-500 hover:underline mr-3">✏ Redenumește</button>
+        <button type="button" data-doc-sterge="${doc.id}" class="text-xs font-medium text-red-600 hover:underline">🗑 Șterge</button>`
+            : ""
+        }
+      </td>
+    </tr>`;
+
+        container.innerHTML = `
+    <div class="space-y-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <select id="documentatie-filtru-tip" class="border rounded-md px-2 py-1.5 text-sm" style="border-color:var(--line)">
+          <option value="toate" ${documentatieTipFiltru === "toate" ? "selected" : ""}>Toate</option>
+          <option value="garantii" ${documentatieTipFiltru === "garantii" ? "selected" : ""}>Garanții</option>
+          <option value="manuale" ${documentatieTipFiltru === "manuale" ? "selected" : ""}>Manuale de utilizare</option>
+        </select>
+        ${
+          poateAdministra
+            ? `<button type="button" id="documentatie-adauga-btn" class="btn-primary rounded-lg px-4 py-1.5 text-sm">+ Adaugă document</button>`
+            : ""
+        }
+      </div>
+      <div class="bg-white rounded-xl border overflow-hidden" style="border-color:var(--line)">
+        <table class="w-full text-left">
+          <tbody>
+            ${
+              (docuri || []).length
+                ? docuri.map(randDocument).join("")
+                : `<tr><td class="py-4 px-3 text-sm text-slate-400 text-center" colspan="2">Niciun document găsit.</td></tr>`
+            }
+          </tbody>
+        </table>
+      </div>
+      ${paginationBarHtml(pageKey, count || 0)}
+    </div>`;
+
+        const refresh = () => renderDocumentatie(container);
+
+        document
+          .getElementById("documentatie-filtru-tip")
+          .addEventListener("change", (e) => {
+            documentatieTipFiltru = e.target.value;
+            resetPage(pageKey);
+            refresh();
+          });
+
+        const btnAdauga = document.getElementById("documentatie-adauga-btn");
+        if (btnAdauga)
+          btnAdauga.addEventListener("click", () =>
+            deschideModalAdaugaDocument(refresh),
+          );
+
+        bindPaginationBar(container, pageKey, refresh);
+        bindDocumentatieTableEvents(container, docuri || [], refresh);
       }
 
       async function renderJurnalActivitati(container) {
