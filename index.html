@@ -10636,12 +10636,28 @@
         if (dbErr) throw dbErr;
       }
 
-      async function obtineUrlSemnatDocumentatie(path) {
+      async function obtineUrlSemnatDocumentatie(path, numeDescarcare) {
         const { data, error } = await supa.storage
           .from(BUCKET_DOCUMENTATIE)
-          .createSignedUrl(path, 300);
+          .createSignedUrl(
+            path,
+            300,
+            numeDescarcare ? { download: numeDescarcare } : undefined,
+          );
         if (error) throw error;
         return data.signedUrl;
+      }
+
+      function extensieDocumentatie(doc) {
+        const sursa = doc.nume_fisier || doc.path || "";
+        const ext = sursa.split(".").pop();
+        return ext && ext.length <= 6 ? ext.toLowerCase() : "pdf";
+      }
+
+      function sanitizeazaNumeDescarcareDocumentatie(nume) {
+        return String(nume)
+          .replace(/[\\/:*?"<>|]/g, "-")
+          .trim();
       }
 
       async function cautaDocumenteProduse(tipFiltru, termen, from, to) {
@@ -10754,9 +10770,13 @@
             );
             if (!doc) return;
             const labelInitial = btn.textContent;
-            btn.textContent = "Se deschide...";
+            btn.textContent = "Se descarcă...";
             try {
-              const url = await obtineUrlSemnatDocumentatie(doc.path);
+              const numeDescarcare = `${sanitizeazaNumeDescarcareDocumentatie(doc.denumire)}.${extensieDocumentatie(doc)}`;
+              const url = await obtineUrlSemnatDocumentatie(
+                doc.path,
+                numeDescarcare,
+              );
               window.open(url, "_blank");
             } catch (err) {
               toast("Eroare la descărcare: " + err.message, true);
