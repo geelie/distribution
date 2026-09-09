@@ -2086,10 +2086,10 @@
 
       const CAMPURI_PRET_LOG = [
         { key: "pret_intrare", label: "Preț intrare" },
-        { key: "pret_vanzare", label: "Preț vânzare" },
         { key: "alte_costuri", label: "Alte costuri" },
+        { key: "pret_vanzare", label: "Total intrare" },
         { key: "adaos", label: "Adaos" },
-        { key: "total_fara_tva", label: "Total (fără TVA)" },
+        { key: "total_fara_tva", label: "Preț v. fără TVA" },
         { key: "pret_cu_tva", label: "Preț cu TVA" },
         { key: "pret_recomandat", label: "Preț recomandat" },
         { key: "discount", label: "Discount" },
@@ -2308,25 +2308,34 @@
         });
       }
 
+      // Structura preturilor unui produs (pozitiile 1-7):
+      //   1. PRET INTRARE        (pret_intrare, editabil)
+      //   2. ALTE COSTURI        (alte_costuri, editabil)
+      //   3. TOTAL INTRARE       (pret_vanzare, calculat = 1 + 2)
+      //   4. ADAOS               (adaos = camp VALOARE, editabil; camp PROCENT calculat/editabil, nu se salveaza separat)
+      //   5. PRET V. FARA TVA    (total_fara_tva, calculat = 3 + 4, cu DISCOUNT aplicat)
+      //   6. PRET CU TVA         (pret_cu_tva, calculat = 5 + TVA)
+      //   7. PRET RECOMANDAT     (pret_recomandat, editabil, neschimbat)
       function attachPriceAutoCalc({
         intrareInput,
-        vanzareInput,
-        adaosInput,
         alteInput,
+        totalIntrareInput,
+        adaosProcentInput,
+        adaosValoareInput,
         totalInput,
         tvaInput,
         discountInput,
         discountTipInput,
       }) {
         function updateTotalTva() {
-          const vanzareStr = vanzareInput.value.trim();
-          if (vanzareStr === "") {
+          const totalIntrareStr = totalIntrareInput.value.trim();
+          if (totalIntrareStr === "") {
             totalInput.value = "";
             tvaInput.value = "";
             return;
           }
-          const vanzare = parseFloat(vanzareStr) || 0;
-          const alte = parseFloat(alteInput.value) || 0;
+          const totalIntrare = parseFloat(totalIntrareStr) || 0;
+          const adaosVal = parseFloat(adaosValoareInput.value) || 0;
           const discount = discountInput
             ? parseFloat(discountInput.value) || 0
             : 0;
@@ -2334,7 +2343,7 @@
           const discountTip = discountTipInput
             ? discountTipInput.value
             : "procent";
-          const totalBrut = vanzare + alte;
+          const totalBrut = totalIntrare + adaosVal;
           const total =
             discountTip === "suma"
               ? totalBrut - discount
@@ -2342,28 +2351,166 @@
           totalInput.value = fmtNum(total);
           tvaInput.value = fmtNum(total * (1 + TVA_RATE));
         }
-        adaosInput.addEventListener("input", () => {
-          const adaosStr = adaosInput.value.trim();
-          if (adaosStr !== "") {
-            const intrare = parseFloat(intrareInput.value) || 0;
-            const adaos = parseFloat(adaosStr) || 0;
-            vanzareInput.value = (intrare + adaos).toFixed(2);
+        function updateTotalIntrare() {
+          const intrare = parseFloat(intrareInput.value) || 0;
+          const alte = parseFloat(alteInput.value) || 0;
+          totalIntrareInput.value = (intrare + alte).toFixed(2);
+        }
+        function syncProcentDinValoare() {
+          const totalIntrare = parseFloat(totalIntrareInput.value) || 0;
+          const valoareStr = adaosValoareInput.value.trim();
+          if (valoareStr === "") {
+            adaosProcentInput.value = "";
+            return;
+          }
+          if (!totalIntrare) return;
+          const valoare = parseFloat(valoareStr) || 0;
+          adaosProcentInput.value = ((valoare / totalIntrare) * 100).toFixed(2);
+        }
+        intrareInput.addEventListener("input", () => {
+          updateTotalIntrare();
+          syncProcentDinValoare();
+          updateTotalTva();
+        });
+        alteInput.addEventListener("input", () => {
+          updateTotalIntrare();
+          syncProcentDinValoare();
+          updateTotalTva();
+        });
+        adaosProcentInput.addEventListener("input", () => {
+          const procentStr = adaosProcentInput.value.trim();
+          if (procentStr !== "") {
+            const totalIntrare = parseFloat(totalIntrareInput.value) || 0;
+            const procent = parseFloat(procentStr) || 0;
+            adaosValoareInput.value = ((totalIntrare * procent) / 100).toFixed(
+              2,
+            );
           }
           updateTotalTva();
         });
-        vanzareInput.addEventListener("input", () => {
-          const vanzareStr = vanzareInput.value.trim();
-          if (vanzareStr !== "") {
-            const intrare = parseFloat(intrareInput.value) || 0;
-            const vanzare = parseFloat(vanzareStr) || 0;
-            adaosInput.value = (vanzare - intrare).toFixed(2);
-          }
+        adaosValoareInput.addEventListener("input", () => {
+          syncProcentDinValoare();
           updateTotalTva();
         });
-        alteInput.addEventListener("input", updateTotalTva);
         if (discountInput)
           discountInput.addEventListener("input", updateTotalTva);
-        return { updateTotalTva };
+        return { updateTotalTva, updateTotalIntrare };
+      }
+
+      // Randare compacta, verticala, a campurilor 1-7 + DISCOUNT pentru
+      // modalele de Adaugare/Editare produs (una sub alta, etichete la
+      // stanga, campuri de valoare alineate la dreapta).
+      function pretRandHtml(labelHtml, mijlocHtml, valoareHtml) {
+        return `
+          <div class="flex items-center justify-between gap-2 py-0.5">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-[11px] font-medium text-slate-600 whitespace-nowrap">${labelHtml}</span>
+              ${mijlocHtml || ""}
+            </div>
+            <div class="w-24 shrink-0">${valoareHtml}</div>
+          </div>`;
+      }
+
+      function procentAdaosInitial(p) {
+        const totalIntrare = Number(p && p.pret_vanzare);
+        const valoare = Number(p && p.adaos);
+        if (!totalIntrare || isNaN(valoare)) return "";
+        return ((valoare / totalIntrare) * 100).toFixed(2);
+      }
+
+      function randurilePretProdusHtml(prefix, p) {
+        p = p || {};
+        const discountTip = p.discount_tip || "suma";
+        return `
+        <div class="rounded-lg border p-2" style="border-color:var(--line)">
+          ${pretRandHtml(
+            "Preț intrare",
+            "",
+            `<input type="number" step="0.01" id="${prefix}-pret-intrare" class="${produsInputBase()} price-field text-right" value="${p.pret_intrare ?? ""}">`,
+          )}
+          ${pretRandHtml(
+            "Alte costuri",
+            "",
+            `<input type="number" step="0.01" id="${prefix}-alte-costuri" class="${produsInputBase()} price-field text-right" value="${p.alte_costuri ?? ""}">`,
+          )}
+          ${pretRandHtml(
+            "Total intrare",
+            "",
+            `<input type="number" step="0.01" id="${prefix}-total-intrare" class="${produsInputBase()} calc-field font-semibold text-right" value="${p.pret_vanzare != null ? fmtNum(p.pret_vanzare) : ""}">`,
+          )}
+          ${pretRandHtml(
+            "Adaos comercial",
+            `<span class="flex items-center gap-1">
+                <input type="number" step="0.01" id="${prefix}-adaos-procent" class="${produsInputBase()} text-right" style="width:4.2rem" value="${procentAdaosInitial(p)}">
+                <span class="text-[11px] text-slate-500">%</span>
+              </span>`,
+            `<input type="number" step="0.01" id="${prefix}-adaos" class="${produsInputBase()} calc-field font-semibold text-right" value="${p.adaos != null ? fmtNum(p.adaos) : ""}">`,
+          )}
+          ${pretRandHtml(
+            "Preț vânzare fără TVA",
+            "",
+            `<input type="number" step="0.01" id="${prefix}-total" class="${produsInputBase()} calc-field font-semibold text-right" value="${p.total_fara_tva != null ? fmtNum(p.total_fara_tva) : ""}">`,
+          )}
+          ${pretRandHtml(
+            "Preț cu TVA",
+            "",
+            `<input type="number" step="0.01" id="${prefix}-tva" class="${produsInputBase()} calc-field font-semibold text-right" value="${p.pret_cu_tva != null ? fmtNum(p.pret_cu_tva) : ""}">`,
+          )}
+          ${pretRandHtml(
+            "Preț Recomandat",
+            "",
+            `<input type="number" step="0.01" id="${prefix}-pret-recomandat" class="${produsInputBase()} text-right" value="${p.pret_recomandat ?? ""}">`,
+          )}
+          ${pretRandHtml(
+            "Discount",
+            `<span class="flex gap-1">
+                <button type="button" data-tip="suma" class="${prefix}-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border ${discountTip === "suma" ? "btn-primary" : ""}" style="border-color:var(--line)">Sumă</button>
+                <button type="button" data-tip="procent" class="${prefix}-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border ${discountTip === "procent" ? "btn-primary" : ""}" style="border-color:var(--line)">%</button>
+              </span>`,
+            `<input type="number" step="0.01" min="0" id="${prefix}-discount" class="${produsInputBase()} text-right" value="${p.discount ?? ""}"><input type="hidden" id="${prefix}-discount-tip" value="${discountTip}">`,
+          )}
+        </div>`;
+      }
+
+      function bindPretFieldsProdus(prefix) {
+        const intrareInput = document.getElementById(`${prefix}-pret-intrare`);
+        const alteInput = document.getElementById(`${prefix}-alte-costuri`);
+        const totalIntrareInput = document.getElementById(
+          `${prefix}-total-intrare`,
+        );
+        const adaosProcentInput = document.getElementById(
+          `${prefix}-adaos-procent`,
+        );
+        const adaosValoareInput = document.getElementById(`${prefix}-adaos`);
+        const totalInput = document.getElementById(`${prefix}-total`);
+        const tvaInput = document.getElementById(`${prefix}-tva`);
+        const discountInput = document.getElementById(`${prefix}-discount`);
+        const discountTipInput = document.getElementById(
+          `${prefix}-discount-tip`,
+        );
+        const { updateTotalTva } = attachPriceAutoCalc({
+          intrareInput,
+          alteInput,
+          totalIntrareInput,
+          adaosProcentInput,
+          adaosValoareInput,
+          totalInput,
+          tvaInput,
+          discountInput,
+          discountTipInput,
+        });
+        return {
+          intrareInput,
+          alteInput,
+          totalIntrareInput,
+          adaosProcentInput,
+          adaosValoareInput,
+          totalInput,
+          tvaInput,
+          discountInput,
+          discountTipInput,
+          updateTotalTva,
+        };
       }
 
       function buildAgentMagazinMap(asocieri, agenti) {
@@ -2427,10 +2574,10 @@
             <th class="px-3 py-3 font-medium">Culoare</th>
             <th class="px-3 py-3 font-medium">VIN</th>
             <th class="px-3 py-3 font-medium">Preț intrare</th>
-            <th class="px-3 py-3 font-medium">Preț vânzare</th>
-            <th class="px-3 py-3 font-medium">Adaos</th>
             <th class="px-3 py-3 font-medium">Alte costuri</th>
-            <th class="px-3 py-3 font-medium">Total fără TVA</th>
+            <th class="px-3 py-3 font-medium">Total intrare</th>
+            <th class="px-3 py-3 font-medium">Adaos</th>
+            <th class="px-3 py-3 font-medium">Preț v. fără TVA</th>
             <th class="px-3 py-3 font-medium">Preț cu TVA</th>
             <th class="px-3 py-3 font-medium">Preț Recomandat</th>
             <th class="px-3 py-3 font-medium">C.I.V.</th>
@@ -3226,32 +3373,7 @@
             <input type="text" disabled class="${produsInputBase()} bg-slate-50 text-slate-400" placeholder="Din antedepozit, per produs">
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>${produsFieldLabel("Preț de intrare (fără TVA)")}<input type="number" step="0.01" id="bulk-add-pret-intrare" class="${produsInputBase()} price-field"></div>
-          <div>${produsFieldLabel("Preț vânzare (fără TVA)")}<input type="number" step="0.01" id="bulk-add-pret-vanzare" class="${produsInputBase()} price-field"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Adaos")}<input type="number" step="0.01" id="bulk-add-adaos" class="${produsInputBase()} calc-field font-semibold"></div>
-          <div>${produsFieldLabel("Alte costuri (fără TVA)")}<input type="number" step="0.01" id="bulk-add-alte-costuri" class="${produsInputBase()} price-field"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Total(fără TVA)")}<input type="number" step="0.01" id="bulk-add-total" class="${produsInputBase()} calc-field font-semibold"></div>
-          <div>${produsFieldLabel("Preț cu TVA")}<input type="number" step="0.01" id="bulk-add-tva" class="${produsInputBase()} calc-field font-semibold"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>${produsFieldLabel("Preț Recomandat")}<input type="number" step="0.01" id="bulk-add-pret-recomandat" class="${produsInputBase()}"></div>
-          <div>
-            <div class="flex items-center justify-between mb-0.5">
-              <label class="block text-[11px] font-medium text-slate-600">Discount</label>
-              <div class="flex gap-1">
-                <button type="button" data-tip="suma" class="bulk-add-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border btn-primary" style="border-color:var(--line)">Sumă</button>
-                <button type="button" data-tip="procent" class="bulk-add-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border" style="border-color:var(--line)">%</button>
-              </div>
-            </div>
-            <input type="number" step="0.01" min="0" id="bulk-add-discount" class="${produsInputBase()}">
-            <input type="hidden" id="bulk-add-discount-tip" value="suma">
-          </div>
-        </div>
+        ${randurilePretProdusHtml("bulk-add", {})}
         <div>
           <div class="flex items-center justify-between">
             <label class="block text-[11px] font-medium text-slate-600">C.I.V.</label>
@@ -3300,24 +3422,17 @@
             catAlta.value = "";
           });
 
-        const addIntrare = document.getElementById("bulk-add-pret-intrare");
-        const addVanzare = document.getElementById("bulk-add-pret-vanzare");
-        const addAlte = document.getElementById("bulk-add-alte-costuri");
-        const addAdaos = document.getElementById("bulk-add-adaos");
-        const addTotal = document.getElementById("bulk-add-total");
-        const addTva = document.getElementById("bulk-add-tva");
-        const addDiscount = document.getElementById("bulk-add-discount");
-        const addDiscountTip = document.getElementById("bulk-add-discount-tip");
-        const { updateTotalTva: addUpdateTotalTva } = attachPriceAutoCalc({
+        const {
           intrareInput: addIntrare,
-          vanzareInput: addVanzare,
-          adaosInput: addAdaos,
           alteInput: addAlte,
+          totalIntrareInput: addTotalIntrare,
+          adaosValoareInput: addAdaos,
           totalInput: addTotal,
           tvaInput: addTva,
           discountInput: addDiscount,
           discountTipInput: addDiscountTip,
-        });
+          updateTotalTva: addUpdateTotalTva,
+        } = bindPretFieldsProdus("bulk-add");
 
         overlay
           .querySelectorAll(".bulk-add-discount-tip-btn")
@@ -3358,7 +3473,7 @@
               .value.trim();
 
             const intrare = parseFloat(addIntrare.value) || null;
-            const vanzare = parseFloat(addVanzare.value) || null;
+            const vanzare = parseFloat(addTotalIntrare.value) || null;
             const alte = parseFloat(addAlte.value) || 0;
             const adaos = addAdaos.value.trim()
               ? parseFloat(addAdaos.value)
@@ -3810,9 +3925,9 @@
     <td class="px-3 py-3 text-xs">${esc(p.culoare || "—")}</td>
     <td class="px-3 py-3 text-xs font-mono">${esc(p.vin || "—")}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_intrare)}</td>
+    <td class="px-3 py-3 text-xs">${fmtNum(p.alte_costuri)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_vanzare)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.adaos)}</td>
-    <td class="px-3 py-3 text-xs">${fmtNum(p.alte_costuri)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.total_fara_tva)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_cu_tva)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_recomandat)}</td>
@@ -3951,32 +4066,7 @@
         <div class="grid grid-cols-2 gap-2">
           <div>${produsFieldLabel("Culoare")}<input type="text" id="add-culoare" class="${produsInputBase()}" value="${esc(prefill?.culoare || "")}"></div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>${produsFieldLabel("Preț de intrare (fără TVA)")}<input type="number" step="0.01" id="add-pret-intrare" class="${produsInputBase()} price-field"></div>
-          <div>${produsFieldLabel("Preț vânzare (fără TVA)")}<input type="number" step="0.01" id="add-pret-vanzare" class="${produsInputBase()} price-field"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Adaos")}<input type="number" step="0.01" id="add-adaos" class="${produsInputBase()} calc-field font-semibold"></div>
-          <div>${produsFieldLabel("Alte costuri (fără TVA)")}<input type="number" step="0.01" id="add-alte-costuri" class="${produsInputBase()} price-field"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Total(fără TVA)")}<input type="number" step="0.01" id="add-total" class="${produsInputBase()} calc-field font-semibold"></div>
-          <div>${produsFieldLabel("Preț cu TVA")}<input type="number" step="0.01" id="add-tva" class="${produsInputBase()} calc-field font-semibold"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>${produsFieldLabel("Preț Recomandat")}<input type="number" step="0.01" id="add-pret-recomandat" class="${produsInputBase()}"></div>
-          <div>
-            <div class="flex items-center justify-between mb-0.5">
-              <label class="block text-[11px] font-medium text-slate-600">Discount</label>
-              <div class="flex gap-1">
-                <button type="button" data-tip="suma" class="add-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border btn-primary" style="border-color:var(--line)">Sumă</button>
-                <button type="button" data-tip="procent" class="add-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border" style="border-color:var(--line)">%</button>
-              </div>
-            </div>
-            <input type="number" step="0.01" min="0" id="add-discount" class="${produsInputBase()}">
-            <input type="hidden" id="add-discount-tip" value="suma">
-          </div>
-        </div>
+        ${randurilePretProdusHtml("add", {})}
         <div>
           <div class="flex items-center justify-between">
             <label class="block text-[11px] font-medium text-slate-600">C.I.V.</label>
@@ -4041,24 +4131,17 @@
             catAlta.value = "";
           });
 
-        const addIntrare = document.getElementById("add-pret-intrare");
-        const addVanzare = document.getElementById("add-pret-vanzare");
-        const addAlte = document.getElementById("add-alte-costuri");
-        const addAdaos = document.getElementById("add-adaos");
-        const addTotal = document.getElementById("add-total");
-        const addTva = document.getElementById("add-tva");
-        const addDiscount = document.getElementById("add-discount");
-        const addDiscountTip = document.getElementById("add-discount-tip");
-        const { updateTotalTva: addUpdateTotalTva } = attachPriceAutoCalc({
+        const {
           intrareInput: addIntrare,
-          vanzareInput: addVanzare,
-          adaosInput: addAdaos,
           alteInput: addAlte,
+          totalIntrareInput: addTotalIntrare,
+          adaosValoareInput: addAdaos,
           totalInput: addTotal,
           tvaInput: addTva,
           discountInput: addDiscount,
           discountTipInput: addDiscountTip,
-        });
+          updateTotalTva: addUpdateTotalTva,
+        } = bindPretFieldsProdus("add");
 
         overlay.querySelectorAll(".add-discount-tip-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -4099,7 +4182,7 @@
               document.getElementById("add-agent").value.trim() || null;
 
             const intrare = parseFloat(addIntrare.value) || null;
-            const vanzare = parseFloat(addVanzare.value) || null;
+            const vanzare = parseFloat(addTotalIntrare.value) || null;
             const alte = parseFloat(addAlte.value) || 0;
             const adaos = addAdaos.value.trim()
               ? parseFloat(addAdaos.value)
@@ -4234,17 +4317,6 @@
               <div id="edit-model-suggestions" class="agent-suggestions hidden absolute z-10 left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg max-h-40 overflow-y-auto text-sm" style="border-color:var(--line)"></div>
             </div>`;
 
-        const discountFieldHtml = `
-            <div class="flex items-center justify-between mb-0.5">
-              <label class="block text-[11px] font-medium text-slate-600">Discount</label>
-              <div class="flex gap-1">
-                <button type="button" data-tip="suma" class="edit-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border ${(p.discount_tip || "suma") === "suma" ? "btn-primary" : ""}" style="border-color:var(--line)">Sumă</button>
-                <button type="button" data-tip="procent" class="edit-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border ${p.discount_tip === "procent" ? "btn-primary" : ""}" style="border-color:var(--line)">%</button>
-              </div>
-            </div>
-            <input type="number" step="0.01" min="0" id="edit-discount" class="${produsInputBase()}" value="${p.discount ?? ""}">
-            <input type="hidden" id="edit-discount-tip" value="${p.discount_tip || "suma"}">`;
-
         const civFieldHtml = `
             <div class="flex items-center justify-between">
               <label class="block text-[11px] font-medium text-slate-600">C.I.V.</label>
@@ -4289,22 +4361,7 @@
           <div>${modelFieldHtml}</div>
           <div>${produsFieldLabel("Culoare")}<input type="text" id="edit-culoare" class="${produsInputBase()}" value="${esc(p.culoare || "")}"></div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>${produsFieldLabel("Preț de intrare (fără TVA)")}<input type="number" step="0.01" id="edit-pret-intrare" class="${produsInputBase()} price-field" value="${p.pret_intrare ?? ""}"></div>
-          <div>${produsFieldLabel("Preț vânzare (fără TVA)")}<input type="number" step="0.01" id="edit-pret-vanzare" class="${produsInputBase()} price-field" value="${p.pret_vanzare ?? ""}"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Adaos")}<input type="number" step="0.01" id="edit-adaos" class="${produsInputBase()} calc-field font-semibold" value="${fmtNum(p.adaos)}"></div>
-          <div>${produsFieldLabel("Alte costuri (fără TVA)")}<input type="number" step="0.01" id="edit-alte-costuri" class="${produsInputBase()} price-field" value="${p.alte_costuri ?? ""}"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Total (fără TVA)")}<input type="number" step="0.01" id="edit-total" class="${produsInputBase()} calc-field font-semibold" value="${fmtNum(p.total_fara_tva)}"></div>
-          <div>${produsFieldLabel("Preț cu TVA")}<input type="number" step="0.01" id="edit-tva" class="${produsInputBase()} calc-field font-semibold" value="${fmtNum(p.pret_cu_tva)}"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>${produsFieldLabel("Preț Recomandat")}<input type="number" step="0.01" id="edit-pret-recomandat" class="${produsInputBase()}" value="${p.pret_recomandat ?? ""}"></div>
-          <div>${discountFieldHtml}</div>
-        </div>
+        ${randurilePretProdusHtml("edit", p)}
         <div>${civFieldHtml}</div>`;
         } else {
           camputiFieldsHtml = `
@@ -4324,24 +4381,9 @@
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>${produsFieldLabel("Culoare")}<input type="text" id="edit-culoare" class="${produsInputBase()}" value="${esc(p.culoare || "")}"></div>
-          <div>${produsFieldLabel("Preț de intrare (fără TVA)")}<input type="number" step="0.01" id="edit-pret-intrare" class="${produsInputBase()} price-field" value="${p.pret_intrare ?? ""}"></div>
         </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Preț vânzare (fără TVA)")}<input type="number" step="0.01" id="edit-pret-vanzare" class="${produsInputBase()} price-field" value="${p.pret_vanzare ?? ""}"></div>
-          <div>${produsFieldLabel("Adaos")}<input type="number" step="0.01" id="edit-adaos" class="${produsInputBase()} calc-field font-semibold" value="${fmtNum(p.adaos)}"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Alte costuri (fără TVA)")}<input type="number" step="0.01" id="edit-alte-costuri" class="${produsInputBase()} price-field" value="${p.alte_costuri ?? ""}"></div>
-          <div>${produsFieldLabel("Total (fără TVA)")}<input type="number" step="0.01" id="edit-total" class="${produsInputBase()} calc-field font-semibold" value="${fmtNum(p.total_fara_tva)}"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2 bg-slate-50 rounded-lg p-2">
-          <div>${produsFieldLabel("Preț cu TVA")}<input type="number" step="0.01" id="edit-tva" class="${produsInputBase()} calc-field font-semibold" value="${fmtNum(p.pret_cu_tva)}"></div>
-          <div>${produsFieldLabel("Preț Recomandat")}<input type="number" step="0.01" id="edit-pret-recomandat" class="${produsInputBase()}" value="${p.pret_recomandat ?? ""}"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>${discountFieldHtml}</div>
-          <div>${civFieldHtml}</div>
-        </div>`;
+        ${randurilePretProdusHtml("edit", p)}
+        <div>${civFieldHtml}</div>`;
         }
 
         overlay.innerHTML = `
@@ -4493,24 +4535,17 @@
             catAlta.value = "";
           });
 
-        const editIntrare = document.getElementById("edit-pret-intrare");
-        const editVanzare = document.getElementById("edit-pret-vanzare");
-        const editAlte = document.getElementById("edit-alte-costuri");
-        const editAdaos = document.getElementById("edit-adaos");
-        const editTotal = document.getElementById("edit-total");
-        const editTva = document.getElementById("edit-tva");
-        const editDiscount = document.getElementById("edit-discount");
-        const editDiscountTip = document.getElementById("edit-discount-tip");
-        const { updateTotalTva: editUpdateTotalTva } = attachPriceAutoCalc({
+        const {
           intrareInput: editIntrare,
-          vanzareInput: editVanzare,
-          adaosInput: editAdaos,
           alteInput: editAlte,
+          totalIntrareInput: editTotalIntrare,
+          adaosValoareInput: editAdaos,
           totalInput: editTotal,
           tvaInput: editTva,
           discountInput: editDiscount,
           discountTipInput: editDiscountTip,
-        });
+          updateTotalTva: editUpdateTotalTva,
+        } = bindPretFieldsProdus("edit");
 
         overlay.querySelectorAll(".edit-discount-tip-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -4551,7 +4586,7 @@
               document.getElementById("edit-agent").value.trim() || null;
 
             const intrare = parseFloat(editIntrare.value) || null;
-            const vanzare = parseFloat(editVanzare.value) || null;
+            const vanzare = parseFloat(editTotalIntrare.value) || null;
             const alte = parseFloat(editAlte.value) || 0;
             const adaos = editAdaos.value.trim()
               ? parseFloat(editAdaos.value)
@@ -7245,9 +7280,7 @@
             <th class="px-3 py-3 font-medium">Model</th>
             <th class="px-3 py-3 font-medium">Culoare</th>
             <th class="px-3 py-3 font-medium">VIN</th>
-            <th class="px-3 py-3 font-medium">Preț vânzare</th>
-            <th class="px-3 py-3 font-medium">Alte costuri</th>
-            <th class="px-3 py-3 font-medium">Total fără TVA</th>
+            <th class="px-3 py-3 font-medium">Preț v. fără TVA</th>
             <th class="px-3 py-3 font-medium">Preț cu TVA</th>
             <th class="px-3 py-3 font-medium">Preț Recomandat</th>
             <th class="px-3 py-3 font-medium">C.I.V.</th>
@@ -7274,8 +7307,6 @@
     <td class="px-3 py-3 text-xs">${esc(p.model || "—")}</td>
             <td class="px-3 py-3 text-xs">${esc(p.culoare || "—")}</td>
             <td class="px-3 py-3 text-xs font-mono">${esc(p.vin || "—")}</td>
-            <td class="px-3 py-3 text-xs font-medium">${fmtNum(p.pret_vanzare)}</td>
-            <td class="px-3 py-3 text-xs">${fmtNum(p.alte_costuri)}</td>
             <td class="px-3 py-3 text-xs font-medium">${fmtNum(p.total_fara_tva)}</td>
             <td class="px-3 py-3 text-xs font-medium">${fmtNum(p.pret_cu_tva)}</td>
             <td class="px-3 py-3 text-xs">${p.pret_recomandat !== null && p.pret_recomandat !== undefined ? fmtNum(p.pret_recomandat) : "—"}</td>
@@ -7308,7 +7339,7 @@
         bindPaginationBar(container, pageKey, refresh);
       }
 
-      function stocMagazinRowHtml(p, i, produsComandaMap) {
+      function stocMagazinRowHtml(p, i, produsComandaMap, extins) {
         const comandaInfo = produsComandaMap.get(p.id);
         return `
               <tr class="border-b last:border-0" style="border-color:var(--line)">
@@ -7324,14 +7355,20 @@
                 <td class="px-3 py-2 text-xs">${esc(p.model || "—")}</td>
                 <td class="px-3 py-2 text-xs">${esc(p.culoare || "—")}</td>
                 <td class="px-3 py-2 text-xs font-mono">${esc(p.vin || "—")}</td>
-                <td class="px-3 py-2 text-xs font-medium">${fmtNum(p.pret_vanzare)}</td>
+                ${
+                  extins
+                    ? `<td class="px-3 py-2 text-xs">${fmtNum(p.pret_vanzare)}</td>
+                <td class="px-3 py-2 text-xs">${fmtNum(p.adaos)}</td>`
+                    : ""
+                }
+                <td class="px-3 py-2 text-xs font-medium">${fmtNum(p.total_fara_tva)}</td>
                 <td class="px-3 py-2 text-xs font-medium">${fmtNum(p.pret_cu_tva)}</td>
                 <td class="px-3 py-2 text-xs">${p.pret_recomandat !== null && p.pret_recomandat !== undefined ? fmtNum(p.pret_recomandat) : "—"}</td>
                 <td class="px-3 py-2 text-xs">${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</td>
               </tr>`;
       }
 
-      function stocMagazinTableHtml(stocMagazin, produsComandaMap) {
+      function stocMagazinTableHtml(stocMagazin, produsComandaMap, extins) {
         return `
           <table class="w-full text-sm min-w-[900px]">
             <thead>
@@ -7343,7 +7380,13 @@
                 <th class="px-3 py-2 font-medium">Model</th>
                 <th class="px-3 py-2 font-medium">Culoare</th>
                 <th class="px-3 py-2 font-medium">VIN</th>
-                <th class="px-3 py-2 font-medium">Preț vânzare</th>
+                ${
+                  extins
+                    ? `<th class="px-3 py-2 font-medium">Total intrare</th>
+                <th class="px-3 py-2 font-medium">Adaos</th>`
+                    : ""
+                }
+                <th class="px-3 py-2 font-medium">Preț v. fără TVA</th>
                 <th class="px-3 py-2 font-medium">Preț cu TVA</th>
                 <th class="px-3 py-2 font-medium">Preț Recomandat</th>
                 <th class="px-3 py-2 font-medium">C.I.V.</th>
@@ -7353,7 +7396,9 @@
               ${
                 stocMagazin.length
                   ? stocMagazin
-                      .map((p, i) => stocMagazinRowHtml(p, i, produsComandaMap))
+                      .map((p, i) =>
+                        stocMagazinRowHtml(p, i, produsComandaMap, extins),
+                      )
                       .join("")
                   : `<tr><td colspan="11" class="px-3 py-4 text-center text-slate-400 text-xs">Niciun produs momentan.</td></tr>`
               }
@@ -7516,7 +7561,7 @@
           <span>${esc(label)} <span class="text-slate-400 font-normal">(${stocMagazin.length} produse)</span></span>
         </h3>
         <div class="bg-white rounded-xl border tabel-fix-wrap tabel-fix-wrap-nested hidden" data-stoc-panel="${m.id}" style="border-color:var(--line)">
-          ${stocMagazinTableHtml(stocMagazin, produsComandaMap)}
+          ${stocMagazinTableHtml(stocMagazin, produsComandaMap, true)}
         </div>
       </div>`;
             })
@@ -7590,7 +7635,7 @@
               return;
             }
             panel.innerHTML =
-              stocMagazinTableHtml(d.produse, d.produsComandaMap) +
+              stocMagazinTableHtml(d.produse, d.produsComandaMap, true) +
               paginationBarHtml(pageKey, d.count);
             bindStocMagazinComandaLinks(
               panel,
@@ -7787,7 +7832,7 @@
           <span>${esc(label)} <span class="text-slate-400 font-normal">(${stocMagazin.length} produse)</span></span>
         </h3>
         <div class="bg-white rounded-xl border tabel-fix-wrap tabel-fix-wrap-nested hidden" data-stoc-panel="${m.id}" style="border-color:var(--line)">
-          ${stocMagazinTableHtml(stocMagazin, produsComandaMap)}
+          ${stocMagazinTableHtml(stocMagazin, produsComandaMap, false)}
         </div>
       </div>`;
             })
@@ -7861,7 +7906,7 @@
               return;
             }
             panel.innerHTML =
-              stocMagazinTableHtml(d.produse, d.produsComandaMap) +
+              stocMagazinTableHtml(d.produse, d.produsComandaMap, false) +
               paginationBarHtml(pageKey, d.count);
             bindStocMagazinComandaLinks(
               panel,
@@ -9915,7 +9960,9 @@
           : "—";
       }
 
-      function coloaneStatisticiProduse(esteAdmin) {
+      function coloaneStatisticiProduse(role) {
+        const esteAdmin = role === "admin" || role === "superadmin";
+        const esteAgent = role === "agent";
         const coloane = [
           { key: "id_produs", label: "ID produs" },
           { key: "agent", label: "Agent" },
@@ -9930,13 +9977,17 @@
         if (esteAdmin) {
           coloane.push(
             { key: "pret_intrare", label: "Preț intrare" },
+            { key: "alte_costuri", label: "Alte costuri" },
+          );
+        }
+        if (esteAdmin || esteAgent) {
+          coloane.push(
+            { key: "pret_vanzare", label: "Total intrare" },
             { key: "adaos", label: "Adaos" },
           );
         }
         coloane.push(
-          { key: "pret_vanzare", label: "Preț vânzare" },
-          { key: "alte_costuri", label: "Alte costuri" },
-          { key: "total_fara_tva", label: "Total fără TVA" },
+          { key: "total_fara_tva", label: "Preț v. fără TVA" },
           { key: "pret_cu_tva", label: "Preț cu TVA" },
           { key: "pret_recomandat", label: "Preț Recomandat" },
           { key: "telefon", label: "Telefon" },
@@ -11811,7 +11862,7 @@
             (b.created_at || "").localeCompare(a.created_at || ""),
           );
 
-          const coloane = coloaneStatisticiProduse(esteAdmin);
+          const coloane = coloaneStatisticiProduse(currentProfile.role);
           const getValoare = (p, key) =>
             randValoareProdus(p, toateMagazinele, key);
           const coloaneVizibile = coloaneCuDate(
