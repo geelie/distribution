@@ -7808,61 +7808,10 @@
 
       async function renderTransporturi(container) {
         transportDeschisId = null;
-        container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
-
         if (!transportFiltre) transportFiltre = transportFiltreImplicite();
 
         const pageKey = currentTabKey;
-        const { from, to } = rangeFor(pageKey);
 
-        let query = supa
-          .from("transporturi")
-          .select("*", { count: "exact" })
-          .order("created_at", { ascending: false })
-          .range(from, to);
-        query = aplicaFiltreTransport(query, transportFiltre);
-        const { data: transporturi, error, count } = await query;
-        if (error) {
-          container.innerHTML = `<div class="text-red-600 text-sm">Eroare la încărcare: ${esc(error.message)}</div>`;
-          return;
-        }
-
-        const idsPagina = (transporturi || []).map((t) => t.id);
-        const countByTransport = new Map();
-        if (idsPagina.length) {
-          const { data: liniiTransport } = await supa
-            .from("comanda_produse")
-            .select("id, transport_id")
-            .in("transport_id", idsPagina);
-          (liniiTransport || []).forEach((l) => {
-            countByTransport.set(
-              l.transport_id,
-              (countByTransport.get(l.transport_id) || 0) + 1,
-            );
-          });
-        }
-
-        function transportRandHtml(t) {
-          const nrProduse = countByTransport.get(t.id) || 0;
-          const statusBadge =
-            t.status === "plecat"
-              ? `<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700">Plecat</span>`
-              : `<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">Planificat</span>`;
-          return `
-          <tr class="border-b last:border-0" style="border-color:var(--line)">
-            <td class="px-3 py-3 text-xs font-medium">${esc(t.numar_inmatriculare)}</td>
-            <td class="px-3 py-3 text-xs">${esc(t.ruta || "—")}</td>
-            <td class="px-3 py-3 text-xs">${new Date(t.data_plecare + "T00:00:00").toLocaleDateString("ro-RO")}</td>
-            <td class="px-3 py-3 text-xs">${statusBadge}</td>
-            <td class="px-3 py-3 text-xs">${nrProduse}</td>
-            <td class="px-3 py-3 text-xs whitespace-nowrap">
-              <button type="button" data-deschide-transport="${t.id}" class="deschide-transport-btn rounded-md px-2.5 py-1 text-xs font-medium border" style="border-color:var(--line)">Deschide</button>
-              ${t.status === "planificat" && !nrProduse ? `<button type="button" data-sterge-transport="${t.id}" class="sterge-transport-btn rounded-md px-2.5 py-1 text-xs font-medium border text-red-600" style="border-color:#fecaca">Șterge</button>` : ""}
-            </td>
-          </tr>`;
-        }
-
-        const totalCount = count || 0;
         container.innerHTML = `
     <div class="bg-white rounded-xl border p-3 mb-3 flex flex-wrap items-end gap-3" style="border-color:var(--line)">
       <div>
@@ -7882,6 +7831,63 @@
         <input type="text" id="transport-filtru-ruta" class="${inputBase()}" placeholder="cuvinte cheie" value="${esc(transportFiltre.ruta)}">
       </div>
     </div>
+    <div id="transporturi-rezultate"></div>`;
+
+        async function refreshRezultate() {
+          const rezEl = document.getElementById("transporturi-rezultate");
+          if (!rezEl) return;
+          rezEl.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
+
+          const { from, to } = rangeFor(pageKey);
+          let query = supa
+            .from("transporturi")
+            .select("*", { count: "exact" })
+            .order("created_at", { ascending: false })
+            .range(from, to);
+          query = aplicaFiltreTransport(query, transportFiltre);
+          const { data: transporturi, error, count } = await query;
+          if (error) {
+            rezEl.innerHTML = `<div class="text-red-600 text-sm">Eroare la încărcare: ${esc(error.message)}</div>`;
+            return;
+          }
+
+          const idsPagina = (transporturi || []).map((t) => t.id);
+          const countByTransport = new Map();
+          if (idsPagina.length) {
+            const { data: liniiTransport } = await supa
+              .from("comanda_produse")
+              .select("id, transport_id")
+              .in("transport_id", idsPagina);
+            (liniiTransport || []).forEach((l) => {
+              countByTransport.set(
+                l.transport_id,
+                (countByTransport.get(l.transport_id) || 0) + 1,
+              );
+            });
+          }
+
+          function transportRandHtml(t) {
+            const nrProduse = countByTransport.get(t.id) || 0;
+            const statusBadge =
+              t.status === "plecat"
+                ? `<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700">Plecat</span>`
+                : `<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700">Planificat</span>`;
+            return `
+          <tr class="border-b last:border-0" style="border-color:var(--line)">
+            <td class="px-3 py-3 text-xs font-medium">${esc(t.numar_inmatriculare)}</td>
+            <td class="px-3 py-3 text-xs">${esc(t.ruta || "—")}</td>
+            <td class="px-3 py-3 text-xs">${new Date(t.data_plecare + "T00:00:00").toLocaleDateString("ro-RO")}</td>
+            <td class="px-3 py-3 text-xs">${statusBadge}</td>
+            <td class="px-3 py-3 text-xs">${nrProduse}</td>
+            <td class="px-3 py-3 text-xs whitespace-nowrap">
+              <button type="button" data-deschide-transport="${t.id}" class="deschide-transport-btn rounded-md px-2.5 py-1 text-xs font-medium border" style="border-color:var(--line)">Deschide</button>
+              ${t.status === "planificat" && !nrProduse ? `<button type="button" data-sterge-transport="${t.id}" class="sterge-transport-btn rounded-md px-2.5 py-1 text-xs font-medium border text-red-600" style="border-color:#fecaca">Șterge</button>` : ""}
+            </td>
+          </tr>`;
+          }
+
+          const totalCount = count || 0;
+          rezEl.innerHTML = `
     <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
       <p class="text-sm text-slate-500">${totalCount} transport${totalCount === 1 ? "" : "uri"}</p>
       <div class="flex gap-2">
@@ -7912,8 +7918,77 @@
     </div>
     ${paginationBarHtml(pageKey, totalCount)}`;
 
-        const refresh = () => renderTransporturi(container);
-        bindPaginationBar(container, pageKey, refresh);
+          bindPaginationBar(rezEl, pageKey, refreshRezultate);
+
+          document
+            .getElementById("transport-nou-btn")
+            .addEventListener("click", () => {
+              renderTransportNouModal((transportId) =>
+                renderTransportDetaliu(container, transportId),
+              );
+            });
+
+          document
+            .querySelectorAll(".deschide-transport-btn")
+            .forEach((btn) => {
+              btn.addEventListener("click", () => {
+                renderTransportDetaliu(
+                  container,
+                  btn.dataset.deschideTransport,
+                );
+              });
+            });
+
+          document.querySelectorAll(".sterge-transport-btn").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              if (!confirm("Ștergi acest transport gol?")) return;
+              const { error: delErr } = await supa
+                .from("transporturi")
+                .delete()
+                .eq("id", btn.dataset.stergeTransport);
+              if (delErr) {
+                toast("Eroare: " + delErr.message, true);
+                return;
+              }
+              inregistreazaLog(
+                "transport",
+                btn.dataset.stergeTransport,
+                "Ștergere transport gol",
+              );
+              refreshRezultate();
+            });
+          });
+
+          document
+            .getElementById("transport-lista-export-excel")
+            .addEventListener("click", async () => {
+              let fullQuery = supa
+                .from("transporturi")
+                .select("*")
+                .order("created_at", { ascending: false });
+              fullQuery = aplicaFiltreTransport(fullQuery, transportFiltre);
+              const { data: toateTransp, error: expErr } = await fullQuery;
+              if (expErr) {
+                toast("Eroare: " + expErr.message, true);
+                return;
+              }
+              const idsToate = (toateTransp || []).map((t) => t.id);
+              const countMapToate = new Map();
+              if (idsToate.length) {
+                const { data: liniiToate } = await supa
+                  .from("comanda_produse")
+                  .select("id, transport_id")
+                  .in("transport_id", idsToate);
+                (liniiToate || []).forEach((l) => {
+                  countMapToate.set(
+                    l.transport_id,
+                    (countMapToate.get(l.transport_id) || 0) + 1,
+                  );
+                });
+              }
+              exportListaTransporturiExcel(toateTransp || [], countMapToate);
+            });
+        }
 
         function bindFiltru(id, cheie, eveniment) {
           const el = document.getElementById(id);
@@ -7922,7 +7997,7 @@
             transportFiltruDebounce = setTimeout(() => {
               transportFiltre[cheie] = el.value;
               resetPage(pageKey);
-              renderTransporturi(container);
+              refreshRezultate();
             }, 350);
           });
         }
@@ -7931,69 +8006,7 @@
         bindFiltru("transport-filtru-numar", "numar", "input");
         bindFiltru("transport-filtru-ruta", "ruta", "input");
 
-        document
-          .getElementById("transport-nou-btn")
-          .addEventListener("click", () => {
-            renderTransportNouModal((transportId) =>
-              renderTransportDetaliu(container, transportId),
-            );
-          });
-
-        document.querySelectorAll(".deschide-transport-btn").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            renderTransportDetaliu(container, btn.dataset.deschideTransport);
-          });
-        });
-
-        document.querySelectorAll(".sterge-transport-btn").forEach((btn) => {
-          btn.addEventListener("click", async () => {
-            if (!confirm("Ștergi acest transport gol?")) return;
-            const { error: delErr } = await supa
-              .from("transporturi")
-              .delete()
-              .eq("id", btn.dataset.stergeTransport);
-            if (delErr) {
-              toast("Eroare: " + delErr.message, true);
-              return;
-            }
-            inregistreazaLog(
-              "transport",
-              btn.dataset.stergeTransport,
-              "Ștergere transport gol",
-            );
-            renderTransporturi(container);
-          });
-        });
-
-        document
-          .getElementById("transport-lista-export-excel")
-          .addEventListener("click", async () => {
-            let fullQuery = supa
-              .from("transporturi")
-              .select("*")
-              .order("created_at", { ascending: false });
-            fullQuery = aplicaFiltreTransport(fullQuery, transportFiltre);
-            const { data: toateTransp, error: expErr } = await fullQuery;
-            if (expErr) {
-              toast("Eroare: " + expErr.message, true);
-              return;
-            }
-            const idsToate = (toateTransp || []).map((t) => t.id);
-            const countMapToate = new Map();
-            if (idsToate.length) {
-              const { data: liniiToate } = await supa
-                .from("comanda_produse")
-                .select("id, transport_id")
-                .in("transport_id", idsToate);
-              (liniiToate || []).forEach((l) => {
-                countMapToate.set(
-                  l.transport_id,
-                  (countMapToate.get(l.transport_id) || 0) + 1,
-                );
-              });
-            }
-            exportListaTransporturiExcel(toateTransp || [], countMapToate);
-          });
+        await refreshRezultate();
       }
 
       async function renderBilantMagazine(container) {
