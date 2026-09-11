@@ -5400,6 +5400,7 @@
           <input type="text" id="comanda-stoc-central-filtru-culoare" class="${inputBase()} text-xs" placeholder="Filtrează culoare">
         </div>
         <div id="comanda-stoc-central-list" class="space-y-1 overflow-y-auto flex-1 min-h-0"></div>
+        <p class="text-[11px] text-slate-400 text-center pt-2 mt-2 border-t shrink-0" style="border-color:var(--line)">Prețurile afișate nu includ eventualele costuri de transport</p>
       </div>
     </div>`;
         document.body.appendChild(overlay);
@@ -7283,6 +7284,17 @@
         }
         const { data: profiles } = await getCached("profiles");
         const profileById = new Map((profiles || []).map((p) => [p.id, p]));
+        const produsIds = [
+          ...new Set(rows.map((r) => r.produs_id).filter(Boolean)),
+        ];
+        let produsById = new Map();
+        if (produsIds.length) {
+          const { data: produseData } = await supa
+            .from("produse")
+            .select("*")
+            .in("id", produsIds);
+          produsById = new Map((produseData || []).map((p) => [p.id, p]));
+        }
         return rows.map((r) => {
           const c = comenziMap.get(r.comanda_id);
           const magazin =
@@ -7294,10 +7306,15 @@
                 ? (magazin.nume || magazin.email) +
                   (magazin.filiala ? " - " + magazin.filiala : "")
                 : "—";
+          const produsAsociat = r.produs_id
+            ? produsById.get(r.produs_id)
+            : null;
           return {
             ...r,
             numar_comanda: c ? c.numar_comanda : "—",
             magazin_nume: magazinNume,
+            produs_asociat: produsAsociat || null,
+            id_produs: produsAsociat ? produsAsociat.id_produs : null,
           };
         });
       }
@@ -7337,6 +7354,11 @@
                   : `<input type="checkbox" class="${prefix}-linie-check w-4 h-4 shrink-0" data-linie-id="${l.id}">`
               }
               <span class="truncate">${esc([l.categorie, l.marca, l.model, l.culoare].filter(Boolean).join(" · ") || "—")}${l.cantitate > 1 ? ` (x${l.cantitate})` : ""}</span>
+              ${
+                l.id_produs
+                  ? `<button type="button" data-edit-produs-transport="${l.produs_id}" class="produs-id-link-transport underline decoration-dotted text-slate-500 hover:text-[var(--teal-dark)] font-mono text-[11px] shrink-0" title="Deschide și editează datele produsului">${esc(l.id_produs)}</button>`
+                  : ""
+              }
             </label>
             ${
               prefix === "inc" && !readonly
@@ -7662,6 +7684,30 @@
             exportTransportExcel(transport, incarcate),
           );
 
+        const toateLiniileTransport = [...disponibile, ...incarcate];
+        document
+          .querySelectorAll(".produs-id-link-transport")
+          .forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const linieAsociata = toateLiniileTransport.find(
+                (l) => String(l.produs_id) === btn.dataset.editProdusTransport,
+              );
+              const produs = linieAsociata && linieAsociata.produs_asociat;
+              if (!produs) return;
+              renderEditProductModal(
+                produs,
+                [],
+                [],
+                () => renderTransportDetaliu(container, transportId),
+                [],
+                [],
+                undefined,
+                null,
+                false,
+              );
+            });
+          });
+
         if (esteEditabil) {
           const btnAdauga = document.getElementById(
             "transport-adauga-selectia",
@@ -7816,11 +7862,11 @@
     <div class="bg-white rounded-xl border p-3 mb-3 flex flex-wrap items-end gap-3" style="border-color:var(--line)">
       <div>
         ${fieldLabel("Din data")}
-        <input type="date" id="transport-filtru-start" class="${inputBase()}" value="${transportFiltre.start}">
+        <input type="text" id="transport-filtru-start" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" class="${inputBase()}" value="${formatDataZLA(transportFiltre.start)}">
       </div>
       <div>
         ${fieldLabel("Până în data")}
-        <input type="date" id="transport-filtru-end" class="${inputBase()}" value="${transportFiltre.end}">
+        <input type="text" id="transport-filtru-end" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" class="${inputBase()}" value="${formatDataZLA(transportFiltre.end)}">
       </div>
       <div>
         ${fieldLabel("Nr. înmatriculare")}
@@ -7990,19 +8036,22 @@
             });
         }
 
-        function bindFiltru(id, cheie, eveniment) {
+        function bindFiltru(id, cheie, eveniment, esteData) {
           const el = document.getElementById(id);
+          if (esteData) initDataZLAInput(el);
           el.addEventListener(eveniment, () => {
             clearTimeout(transportFiltruDebounce);
             transportFiltruDebounce = setTimeout(() => {
-              transportFiltre[cheie] = el.value;
+              transportFiltre[cheie] = esteData
+                ? parseDataZLA(el.value)
+                : el.value;
               resetPage(pageKey);
               refreshRezultate();
             }, 350);
           });
         }
-        bindFiltru("transport-filtru-start", "start", "change");
-        bindFiltru("transport-filtru-end", "end", "change");
+        bindFiltru("transport-filtru-start", "start", "change", true);
+        bindFiltru("transport-filtru-end", "end", "change", true);
         bindFiltru("transport-filtru-numar", "numar", "input");
         bindFiltru("transport-filtru-ruta", "ruta", "input");
 
@@ -9726,6 +9775,43 @@
       // (an/lună/zi), nu UTC — spre deosebire de toISOString(), care ar
       // deplasa data cu o zi în fusuri orare cu decalaj pozitiv față de UTC
       // (ex. România, UTC+2 vara) atunci când ora locală e aproape de miezul nopții.
+      function formatDataZLA(iso) {
+        if (!iso) return "";
+        const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+        if (!m) return "";
+        return `${m[3]}.${m[2]}.${m[1]}`;
+      }
+
+      function parseDataZLA(str) {
+        if (!str) return "";
+        const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(String(str).trim());
+        if (!m) return "";
+        const [, zi, luna, an] = m;
+        const d = new Date(`${an}-${luna}-${zi}T00:00:00`);
+        if (
+          isNaN(d.getTime()) ||
+          d.getFullYear() !== Number(an) ||
+          d.getMonth() + 1 !== Number(luna) ||
+          d.getDate() !== Number(zi)
+        )
+          return "";
+        return `${an}-${luna}-${zi}`;
+      }
+
+      function initDataZLAInput(el) {
+        if (!el || el.dataset.zlaInit) return;
+        el.dataset.zlaInit = "1";
+        el.addEventListener("input", () => {
+          const digits = el.value.replace(/[^\d]/g, "").slice(0, 8);
+          let out = digits;
+          if (digits.length > 4)
+            out = `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`;
+          else if (digits.length > 2)
+            out = `${digits.slice(0, 2)}.${digits.slice(2)}`;
+          el.value = out;
+        });
+      }
+
       function dataLocalaISO(d) {
         const an = d.getFullYear();
         const luna = String(d.getMonth() + 1).padStart(2, "0");
@@ -12565,8 +12651,8 @@
                 .join("")}
             </select>
           </div>
-          <div class="w-32">${statLabel("Din data")}<input type="date" id="stat-start" value="${state.start}" class="${statInput()}"></div>
-          <div class="w-32">${statLabel("Până în data")}<input type="date" id="stat-end" value="${state.end}" class="${statInput()}"></div>
+          <div class="w-32">${statLabel("Din data")}<input type="text" id="stat-start" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" value="${formatDataZLA(state.start)}" class="${statInput()}"></div>
+          <div class="w-32">${statLabel("Până în data")}<input type="text" id="stat-end" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" value="${formatDataZLA(state.end)}" class="${statInput()}"></div>
           ${
             areFiltruMagazin
               ? `<div class="w-32">${statLabel("Magazin")}
@@ -12802,20 +12888,28 @@
               if (p) {
                 state.start = p.start;
                 state.end = p.end;
-                document.getElementById("stat-start").value = p.start;
-                document.getElementById("stat-end").value = p.end;
+                document.getElementById("stat-start").value = formatDataZLA(
+                  p.start,
+                );
+                document.getElementById("stat-end").value = formatDataZLA(
+                  p.end,
+                );
               }
             }
           });
+        initDataZLAInput(document.getElementById("stat-start"));
+        initDataZLAInput(document.getElementById("stat-end"));
         document
           .getElementById("stat-start")
           .addEventListener("change", (e) => {
-            state.start = e.target.value;
+            const iso = parseDataZLA(e.target.value);
+            if (iso) state.start = iso;
             state.perioada = "";
             document.getElementById("stat-perioada").value = "";
           });
         document.getElementById("stat-end").addEventListener("change", (e) => {
-          state.end = e.target.value;
+          const iso = parseDataZLA(e.target.value);
+          if (iso) state.end = iso;
           state.perioada = "";
           document.getElementById("stat-perioada").value = "";
         });
