@@ -9880,6 +9880,9 @@
           const zz = Math.abs(zileDiff);
           return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-600">🔴 Depășit cu ${zz} zi${zz === 1 ? "" : "le"}</span>`;
         }
+        if (statusCurent === "verde" && zileDiff === 0) {
+          return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-50 text-orange-600">🟠 Expiră azi (0 zile rămase)</span>`;
+        }
         return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">🟢 În termen (${zileDiff} zi${zileDiff === 1 ? "" : "le"} rămase)</span>`;
       }
 
@@ -9891,14 +9894,19 @@
           const c = calculeazaCicluriBaterie(p, incarcari, dataReferinta);
           if (!c) return;
           if (c.statusCurent === "rosu") depasite++;
+          else if (c.statusCurent === "verde" && c.zileDiff === 0) ultimaZi++;
           else inTermen++;
-          if (c.statusCurent === "verde" && c.zileDiff === 0) ultimaZi++;
         });
-        return { inTermen, depasite, ultimaZi, total: inTermen + depasite };
+        return {
+          inTermen,
+          depasite,
+          ultimaZi,
+          total: inTermen + depasite + ultimaZi,
+        };
       }
 
       function bateriiRezumatBar(produse, incarcari, filtruActiv) {
-        const { inTermen, depasite, total } = rezumatBaterii(
+        const { inTermen, depasite, ultimaZi, total } = rezumatBaterii(
           produse,
           incarcari,
         );
@@ -9911,6 +9919,9 @@
       <button type="button" data-baterii-filtru="termen" class="baterii-filtru-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-50 text-emerald-700 border border-transparent transition-shadow ${activ === "termen" ? "ring-2 ring-emerald-600" : ""}">
         🟢 ${inTermen} în termen
       </button>
+      <button type="button" data-baterii-filtru="azi" class="baterii-filtru-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-transparent transition-shadow ${ultimaZi > 0 ? "bg-orange-50 text-orange-600" : "bg-slate-50 text-slate-400"} ${activ === "azi" ? "ring-2" : ""}"${activ === "azi" ? ' style="--tw-ring-color:#ea580c"' : ""}>
+        🟠 ${ultimaZi} expiră azi
+      </button>
       <button type="button" data-baterii-filtru="depasit" class="baterii-filtru-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-transparent transition-shadow ${depasite > 0 ? "bg-red-50 text-red-600" : "bg-slate-50 text-slate-400"} ${activ === "depasit" ? "ring-2 ring-red-600" : ""}">
         🔴 ${depasite} cu termen depășit
       </button>
@@ -9921,7 +9932,13 @@
         if (filtru === "termen") {
           return (produse || []).filter((p) => {
             const c = calculeazaCicluriBaterie(p, incarcari);
-            return c && c.statusCurent === "verde";
+            return c && c.statusCurent === "verde" && c.zileDiff !== 0;
+          });
+        }
+        if (filtru === "azi") {
+          return (produse || []).filter((p) => {
+            const c = calculeazaCicluriBaterie(p, incarcari);
+            return c && c.statusCurent === "verde" && c.zileDiff === 0;
           });
         }
         if (filtru === "depasit") {
