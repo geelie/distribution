@@ -806,7 +806,15 @@
         <button id="btn-close-sidebar" class="absolute right-2 top-2 shrink-0 md:hidden text-slate-400 hover:text-white text-xl leading-none px-1">✕</button>
         <img src="./assets/logo.png" alt="Geeli Distribution" style="width:80%;height:auto;display:block;" />
       </div>
-      <nav id="side-nav" class="flex-1 px-3 py-4 space-y-1 overflow-y-auto"></nav>
+      <div class="relative flex-1 min-h-0">
+        <nav id="side-nav" class="sidebar-scroll px-3 py-4 space-y-1 overflow-y-auto" style="height:100%"></nav>
+        <div id="side-nav-arrow-up" class="sidebar-scroll-arrow sidebar-scroll-arrow-top text-white hidden">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg>
+        </div>
+        <div id="side-nav-arrow-down" class="sidebar-scroll-arrow sidebar-scroll-arrow-bottom text-white hidden">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+      </div>
       <div class="px-4 py-4 border-t border-white/10">
         <div class="text-xs text-slate-400 mb-0.5">${esc(currentProfile.email)}</div>
         <div class="mb-3 flex items-center gap-1.5 flex-wrap">
@@ -899,6 +907,20 @@
             closeSidebar();
           });
         });
+
+        const sageataSus = document.getElementById("side-nav-arrow-up");
+        const sageataJos = document.getElementById("side-nav-arrow-down");
+        const actualizeazaSageteleNav = () => {
+          if (!sageataSus || !sageataJos) return;
+          const maiSusDeAscuns = nav.scrollTop > 2;
+          const maiJosDeAscuns =
+            nav.scrollTop + nav.clientHeight < nav.scrollHeight - 2;
+          sageataSus.classList.toggle("hidden", !maiSusDeAscuns);
+          sageataJos.classList.toggle("hidden", !maiJosDeAscuns);
+        };
+        nav.addEventListener("scroll", actualizeazaSageteleNav);
+        window.addEventListener("resize", actualizeazaSageteleNav);
+        requestAnimationFrame(actualizeazaSageteleNav);
         document
           .getElementById("btn-logout")
           .addEventListener("click", async () => {
