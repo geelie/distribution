@@ -5746,12 +5746,12 @@
             }
 
             overlay.remove();
-            toast(`Comanda ${numarComanda} a fost creată.`);
+            toast(`Comanda ${comanda.numar_comanda} a fost creată.`);
             inregistreazaLog(
               "comanda",
               comanda.id,
               "Creare",
-              `Nr. comandă: ${numarComanda}${esteDropshipping ? " · Dropshipping" : ""}`,
+              `Nr. comandă: ${comanda.numar_comanda}${esteDropshipping ? " · Dropshipping" : ""}`,
             );
             onSaved();
           });
