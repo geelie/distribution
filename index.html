@@ -2756,7 +2756,7 @@
           .is("magazin_id", null)
           .eq("vanzare_directa", false)
           .eq("vandut", false)
-          .order("created_at", { ascending: true })
+          .order("updated_at", { ascending: false })
           .range(from, to);
         const orFilter = buildSearchOrFilter(
           termenCautare,
@@ -3795,7 +3795,7 @@
           .select("*", { count: "exact" })
           .or("magazin_id.not.is.null,vanzare_directa.eq.true")
           .eq("vandut", false)
-          .order("created_at", { ascending: true })
+          .order("updated_at", { ascending: false })
           .range(from, to);
         const orFilter = buildSearchOrFilter(
           termenCautare,
@@ -8471,7 +8471,7 @@
           .select("*", { count: "exact" })
           .eq("magazin_id", currentUser.id)
           .eq("vandut", false)
-          .order("created_at", { ascending: true })
+          .order("updated_at", { ascending: false })
           .range(from, to);
         const orFilter = buildSearchOrFilter(
           tabSearchTerms[currentTabKey] || "",
@@ -8696,7 +8696,7 @@
           .from("produse")
           .select("*", { count: "exact" })
           .eq("magazin_id", magazinId)
-          .order("created_at", { ascending: true })
+          .order("updated_at", { ascending: false })
           .range(from, to);
         if (doarNevandute) q = q.eq("vandut", false);
         const { data: produse, error, count } = await q;
@@ -8740,6 +8740,18 @@
         };
       }
 
+      function sorteazaMagazineAlfabetic(magazine) {
+        return [...(magazine || [])].sort((a, b) => {
+          const numeA = (a.nume || a.email || "").toLowerCase();
+          const numeB = (b.nume || b.email || "").toLowerCase();
+          const cmpNume = numeA.localeCompare(numeB, "ro");
+          if (cmpNume !== 0) return cmpNume;
+          const filialaA = (a.filiala || "").toLowerCase();
+          const filialaB = (b.filiala || "").toLowerCase();
+          return filialaA.localeCompare(filialaB, "ro");
+        });
+      }
+
       async function renderAgentStoc(container) {
         container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
         const myGen = renderGen;
@@ -8760,8 +8772,8 @@
           return;
         }
         const magazinIds = (asocieri || []).map((a) => a.magazin_id);
-        const magazine = (profiles || []).filter((p) =>
-          magazinIds.includes(p.id),
+        const magazine = sorteazaMagazineAlfabetic(
+          (profiles || []).filter((p) => magazinIds.includes(p.id)),
         );
         if (!magazine.length) {
           container.innerHTML = `<div class="bg-white rounded-xl border p-10 text-center" style="border-color:var(--line)"><p class="text-slate-400 text-sm">Nu ai niciun magazin alocat.</p></div>`;
@@ -8781,7 +8793,7 @@
                 .select("*")
                 .in("magazin_id", magazinIds)
                 .eq("vandut", false)
-                .order("created_at", { ascending: true });
+                .order("updated_at", { ascending: false });
               const orFilter = buildSearchOrFilter(termenCautare, [
                 "id_produs",
                 "categorie",
@@ -9012,8 +9024,8 @@
           return;
         }
         const magazinIds = (asocieri || []).map((a) => a.magazin_id);
-        const magazine = (profiles || []).filter((p) =>
-          magazinIds.includes(p.id),
+        const magazine = sorteazaMagazineAlfabetic(
+          (profiles || []).filter((p) => magazinIds.includes(p.id)),
         );
         if (!magazine.length) {
           container.innerHTML = `<div class="bg-white rounded-xl border p-10 text-center" style="border-color:var(--line)"><p class="text-slate-400 text-sm">Niciun magazin alocat.</p></div>`;
@@ -9029,7 +9041,7 @@
               .select("*")
               .in("magazin_id", magazinIds)
               .eq("vandut", false)
-              .order("created_at", { ascending: true });
+              .order("updated_at", { ascending: false });
             const orFilter = buildSearchOrFilter(termenCautare, [
               "id_produs",
               "categorie",
@@ -9263,8 +9275,8 @@
           return;
         }
         const magazinIds = (asocieri || []).map((a) => a.magazin_id);
-        const magazineAlocate = (profiles || []).filter((p) =>
-          magazinIds.includes(p.id),
+        const magazineAlocate = sorteazaMagazineAlfabetic(
+          (profiles || []).filter((p) => magazinIds.includes(p.id)),
         );
 
         let produseQuery = supa
@@ -9272,7 +9284,7 @@
           .select("*", { count: "exact" })
           .eq("magazin_id", currentUser.id)
           .eq("vandut", false)
-          .order("created_at", { ascending: true })
+          .order("updated_at", { ascending: false })
           .range(from, to);
         const orFilter = buildSearchOrFilter(
           tabSearchTerms[currentTabKey] || "",
