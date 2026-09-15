@@ -53,3 +53,41 @@
   bottom: 0;
   background: linear-gradient(to top, var(--graphite) 35%, transparent);
 }
+.sidebar-scroll-arrow.hidden {
+  display: none;
+}
+
+/* --- Selector calendar pentru filtrele de dată ZZ.LL.AAAA (Transporturi,
+   Statistici): inputul type="date" nativ e ascuns vizual (doar pentru
+   accesarea calendarului), afișarea rămâne mereu text ZZ.LL.AAAA --- */
+.date-picker-nativ {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+.date-picker-btn {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: #94a3b8;
+}
+.date-picker-btn:hover {
+  color: #475569;
+}
+.date-picker-btn svg {
+  width: 14px;
+  height: 14px;
+}
