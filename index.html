@@ -8060,7 +8060,10 @@
 
         function bindFiltru(id, cheie, eveniment, esteData) {
           const el = document.getElementById(id);
-          if (esteData) initDataZLAInput(el);
+          if (esteData) {
+            initDataZLAInput(el);
+            adaugaSelectorCalendarLaFiltru(el);
+          }
           el.addEventListener(eveniment, () => {
             clearTimeout(transportFiltruDebounce);
             transportFiltruDebounce = setTimeout(() => {
@@ -9843,6 +9846,61 @@
           else if (digits.length > 2)
             out = `${digits.slice(0, 2)}.${digits.slice(2)}`;
           el.value = out;
+        });
+      }
+
+      // Atașează, lângă un câmp text ZZ.LL.AAAA, un selector de tip
+      // calendar (input nativ type="date", ascuns vizual) + un buton
+      // mic cu icon de calendar. Introducerea manuală a datei rămâne
+      // exact ca înainte; butonul deschide calendarul nativ, iar
+      // alegerea unei date din el completează același câmp text
+      // (reformatat ZZ.LL.AAAA) și declanșează evenimentul "change"
+      // existent, ca și cum ar fi fost tastată manual.
+      function adaugaSelectorCalendarLaFiltru(el) {
+        if (!el || el.dataset.calInit) return;
+        el.dataset.calInit = "1";
+        const wrap = document.createElement("div");
+        wrap.className = "relative";
+        el.parentNode.insertBefore(wrap, el);
+        wrap.appendChild(el);
+        el.style.paddingRight = "24px";
+
+        const nativ = document.createElement("input");
+        nativ.type = "date";
+        nativ.tabIndex = -1;
+        nativ.setAttribute("aria-hidden", "true");
+        nativ.className = "date-picker-nativ";
+        const isoInitial = parseDataZLA(el.value);
+        if (isoInitial) nativ.value = isoInitial;
+        wrap.appendChild(nativ);
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.tabIndex = -1;
+        btn.className = "date-picker-btn";
+        btn.setAttribute("aria-label", "Alege data din calendar");
+        btn.innerHTML =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4M16 3v4M3 10h18"></path></svg>';
+        wrap.appendChild(btn);
+
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          const isoActual = parseDataZLA(el.value);
+          if (isoActual) nativ.value = isoActual;
+          if (typeof nativ.showPicker === "function") {
+            try {
+              nativ.showPicker();
+            } catch (err) {
+              nativ.focus();
+            }
+          } else {
+            nativ.focus();
+          }
+        });
+        nativ.addEventListener("change", () => {
+          if (!nativ.value) return;
+          el.value = formatDataZLA(nativ.value);
+          el.dispatchEvent(new Event("change", { bubbles: true }));
         });
       }
 
@@ -12950,6 +13008,8 @@
           });
         initDataZLAInput(document.getElementById("stat-start"));
         initDataZLAInput(document.getElementById("stat-end"));
+        adaugaSelectorCalendarLaFiltru(document.getElementById("stat-start"));
+        adaugaSelectorCalendarLaFiltru(document.getElementById("stat-end"));
         document
           .getElementById("stat-start")
           .addEventListener("change", (e) => {
