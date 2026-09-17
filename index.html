@@ -7882,19 +7882,19 @@
 
         container.innerHTML = `
     <div class="bg-white rounded-xl border p-3 mb-3 flex flex-wrap items-end gap-3" style="border-color:var(--line)">
-      <div>
+      <div class="w-28">
         ${fieldLabel("Din data")}
         <input type="text" id="transport-filtru-start" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" class="${inputBase()}" value="${formatDataZLA(transportFiltre.start)}">
       </div>
-      <div>
+      <div class="w-28">
         ${fieldLabel("Până în data")}
         <input type="text" id="transport-filtru-end" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" class="${inputBase()}" value="${formatDataZLA(transportFiltre.end)}">
       </div>
-      <div>
+      <div class="w-28">
         ${fieldLabel("Nr. înmatriculare")}
         <input type="text" id="transport-filtru-numar" class="${inputBase()}" placeholder="ex: SM01GEL" value="${esc(transportFiltre.numar)}">
       </div>
-      <div>
+      <div class="w-28">
         ${fieldLabel("Rută")}
         <input type="text" id="transport-filtru-ruta" class="${inputBase()}" placeholder="cuvinte cheie" value="${esc(transportFiltre.ruta)}">
       </div>
@@ -12760,8 +12760,8 @@
                 .join("")}
             </select>
           </div>
-          <div class="w-32">${statLabel("Din data")}<input type="text" id="stat-start" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" value="${formatDataZLA(state.start)}" class="${statInput()}"></div>
-          <div class="w-32">${statLabel("Până în data")}<input type="text" id="stat-end" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" value="${formatDataZLA(state.end)}" class="${statInput()}"></div>
+          <div class="w-24">${statLabel("Din data")}<input type="text" id="stat-start" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" value="${formatDataZLA(state.start)}" class="${statInput()}"></div>
+          <div class="w-24">${statLabel("Până în data")}<input type="text" id="stat-end" inputmode="numeric" maxlength="10" placeholder="ZZ.LL.AAAA" value="${formatDataZLA(state.end)}" class="${statInput()}"></div>
           ${
             areFiltruMagazin
               ? `<div class="w-32">${statLabel("Magazin")}
