@@ -4929,19 +4929,44 @@
         { key: "partial_onorata", label: "Parțial onorată" },
         { key: "onorata", label: "Onorată" },
       ];
+      const STADIU_PLATA_FILTER_OPTIONS = [
+        { key: "neachitat", label: "Neachitat" },
+        { key: "integral", label: "Achitat integral" },
+        { key: "partial", label: "Achitat parțial" },
+      ];
       let comenziStatusFilter = [];
+      let comenziStadiuPlataFilter = [];
       let comenziDropshippingFilter = false;
       let bateriiFiltruActiv = "toate";
+
+      function aplicaFiltruStadiuPlata(query, chei) {
+        if (!chei.length) return query;
+        if (chei.length === 1) {
+          return chei[0] === "neachitat"
+            ? query.is("stadiu_plata", null)
+            : query.eq("stadiu_plata", chei[0]);
+        }
+        const map = {
+          neachitat: "stadiu_plata.is.null",
+          integral: "stadiu_plata.eq.integral",
+          partial: "stadiu_plata.eq.partial",
+        };
+        return query.or(chei.map((k) => map[k]).join(","));
+      }
 
       function statusFilterChipsHtml(selected) {
         const chip = (key, label, active) =>
           `<button type="button" data-status-filter="${key}" class="status-filter-chip rounded-full px-3 py-1 text-xs font-medium border transition-colors ${active ? "bg-slate-800 text-white border-slate-800" : "border-slate-300 text-slate-600 hover:bg-slate-50"}">${esc(label)}</button>`;
+        const chipPlata = (key, label, active) =>
+          `<button type="button" data-stadiu-plata-filter="${key}" class="stadiu-plata-filter-chip rounded-full px-3 py-1 text-xs font-medium border transition-colors ${active ? "bg-slate-800 text-white border-slate-800" : "border-slate-300 text-slate-600 hover:bg-slate-50"}">${esc(label)}</button>`;
         return `
     <div class="flex items-center gap-1.5 flex-wrap mb-3">
       <span class="text-xs text-slate-400 mr-1">Filtru status:</span>
       ${chip("__all__", "Toate", !selected.length)}
       ${COMANDA_FILTER_STATUSES.map((s) => chip(s.key, s.label, selected.includes(s.key))).join("")}
       <button type="button" id="dropshipping-filter-chip" class="rounded-full px-3 py-1 text-xs font-medium border transition-colors ml-1 ${comenziDropshippingFilter ? "bg-purple-700 text-white border-purple-700" : "border-slate-300 text-slate-600 hover:bg-slate-50"}">Dropshipping</button>
+      <span class="w-px h-4 bg-slate-200 mx-1"></span>
+      ${STADIU_PLATA_FILTER_OPTIONS.map((s) => chipPlata(s.key, s.label, comenziStadiuPlataFilter.includes(s.key))).join("")}
     </div>`;
       }
 
@@ -4968,6 +4993,24 @@
             onChange();
           });
         });
+        container
+          .querySelectorAll(".stadiu-plata-filter-chip")
+          .forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const key = btn.dataset.stadiuPlataFilter;
+              const next = comenziStadiuPlataFilter.slice();
+              const idx = next.indexOf(key);
+              if (idx >= 0) {
+                next.splice(idx, 1);
+              } else {
+                if (next.length >= 2) next.shift();
+                next.push(key);
+              }
+              comenziStadiuPlataFilter = next;
+              resetPage(currentTabKey);
+              onChange();
+            });
+          });
         const dropshippingChip = container.querySelector(
           "#dropshipping-filter-chip",
         );
@@ -6703,6 +6746,10 @@
           comenziQuery = comenziQuery.in("status", comenziStatusFilter);
         if (comenziDropshippingFilter)
           comenziQuery = comenziQuery.eq("dropshipping", true);
+        comenziQuery = aplicaFiltruStadiuPlata(
+          comenziQuery,
+          comenziStadiuPlataFilter,
+        );
 
         const [
           { data: comenzi, error: comErr, count },
@@ -6872,6 +6919,7 @@
             if (comenziStatusFilter.length)
               q = q.in("status", comenziStatusFilter);
             if (comenziDropshippingFilter) q = q.eq("dropshipping", true);
+            q = aplicaFiltruStadiuPlata(q, comenziStadiuPlataFilter);
             return q;
           })(),
           getCached("profiles"),
@@ -7024,6 +7072,7 @@
             if (comenziStatusFilter.length)
               q = q.in("status", comenziStatusFilter);
             if (comenziDropshippingFilter) q = q.eq("dropshipping", true);
+            q = aplicaFiltruStadiuPlata(q, comenziStadiuPlataFilter);
             return q;
           })(),
           supa
@@ -7183,6 +7232,7 @@
               if (comenziStatusFilter.length)
                 q = q.in("status", comenziStatusFilter);
               if (comenziDropshippingFilter) q = q.eq("dropshipping", true);
+              q = aplicaFiltruStadiuPlata(q, comenziStadiuPlataFilter);
               return q;
             })(),
             loadStocDisponibilPentruComenzi(),
