@@ -8086,6 +8086,10 @@
       async function renderBilantMagazine(container) {
         container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
 
+        const isStockManager =
+          currentProfile.role === "admin" ||
+          currentProfile.role === "superadmin";
+
         const orFilter = buildSearchOrFilter(
           tabSearchTerms[currentTabKey] || "",
           ["nume", "email", "filiala"],
@@ -8164,9 +8168,18 @@
           const numeCell = esteAlocat
             ? `<span style="padding-left:1rem;border-left:2px solid var(--line);display:inline-block">${esc(b.nume || b.email)}</span>`
             : esc(b.nume || b.email);
+          const butonAchitare =
+            isStockManager && Number(b.sold_neachitat) > 0
+              ? `<button type="button" data-achitare-bilant="${b.magazin_id}" data-nume="${esc(b.nume || b.email)}" data-sold="${b.sold_neachitat}" class="achitare-bilant-btn rounded-md px-2.5 py-1 text-xs font-medium border text-[var(--teal-dark)]" style="border-color:var(--line)">Achitare</button>`
+              : "";
+          const butonIstoricPlati = isStockManager
+            ? `<button type="button" data-istoric-plati="${b.magazin_id}" data-nume="${esc(b.nume || b.email)}" data-filiala="${esc(b.filiala || "")}" class="istoric-plati-btn rounded-md px-2.5 py-1 text-xs font-medium border" style="border-color:var(--line)">Istoric plăți</button>`
+            : "";
           const actiuni = esteAlocat
-            ? `<span class="text-[11px] text-slate-400">Alocat la HUB: ${esc(b.hub_alocat_nume || "")}${b.hub_alocat_filiala ? " - " + esc(b.hub_alocat_filiala) : ""}</span>`
+            ? `<span class="text-[11px] text-slate-400">Alocat la HUB: ${esc(b.hub_alocat_nume || "")}${b.hub_alocat_filiala ? " - " + esc(b.hub_alocat_filiala) : ""}</span>${butonAchitare ? ` ${butonAchitare}` : ""}${butonIstoricPlati ? ` ${butonIstoricPlati}` : ""}`
             : `
+              ${butonAchitare}
+              ${butonIstoricPlati}
               <button type="button" data-emite-bilet="${b.magazin_id}" data-nume="${esc(b.nume || b.email)}" class="emite-bilet-btn rounded-md px-2.5 py-1 text-xs font-medium border" style="border-color:var(--line)">Emite bilet nou</button>
               ${
                 b.bilet_id
@@ -8192,6 +8205,27 @@
         document
           .getElementById("bilant-export-excel")
           .addEventListener("click", () => exportBilantExcel(randuri));
+
+        document.querySelectorAll(".achitare-bilant-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            renderAchitareBilantModal(
+              btn.dataset.achitareBilant,
+              btn.dataset.nume,
+              Number(btn.dataset.sold) || 0,
+              () => renderBilantMagazine(container),
+            );
+          });
+        });
+
+        document.querySelectorAll(".istoric-plati-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            renderIstoricPlatiModal(
+              btn.dataset.istoricPlati,
+              btn.dataset.nume,
+              btn.dataset.filiala,
+            );
+          });
+        });
 
         document.querySelectorAll(".emite-bilet-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -8233,6 +8267,369 @@
             renderBilantMagazine(container);
           });
         });
+      }
+
+      function renderAchitareBilantModal(
+        magazinId,
+        magazinNume,
+        soldNeachitat,
+        onSaved,
+      ) {
+        const overlay = document.createElement("div");
+        overlay.id = "achitare-bilant-overlay";
+        overlay.className =
+          "fixed inset-0 z-40 flex items-center justify-center px-4 py-8 overflow-y-auto";
+        overlay.style.background = "rgba(15,20,25,0.55)";
+
+        overlay.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm fade-in my-auto relative">
+      <button type="button" id="achitare-bilant-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+      <h2 class="text-lg font-bold mb-1 pr-6">Achitare sold</h2>
+      <p class="text-sm text-slate-500 mb-1">${esc(magazinNume)}</p>
+      <p class="text-xs text-slate-400 mb-3">Sold neachitat curent: <span class="font-medium text-slate-600">${fmtNum(soldNeachitat)} lei</span></p>
+      <div class="space-y-3">
+        <div>
+          ${fieldLabel("Sumă achitată (lei)")}
+          <input type="number" id="achitare-bilant-suma" min="0.01" step="0.01" max="${soldNeachitat}" class="${inputBase()}" placeholder="Ex: 1500">
+          <p class="text-[11px] text-slate-400 mt-1">Suma va fi alocată automat pe comenzile neachitate ale magazinului/HUB-ului, în ordinea vechimii, până se epuizează.</p>
+        </div>
+        <div>
+          ${fieldLabel("Detalii de plată")}
+          <input type="text" id="achitare-bilant-detalii" placeholder="Nr. ordin de plată, etc." class="${inputBase()}">
+        </div>
+        <button type="button" id="achitare-bilant-salveaza" class="btn-primary rounded-lg py-2 px-4 text-sm w-full">Distribuie plata</button>
+        <p id="achitare-bilant-msg" class="text-sm text-center"></p>
+        <div id="achitare-bilant-rezultat"></div>
+      </div>
+    </div>`;
+        document.body.appendChild(overlay);
+
+        document
+          .getElementById("achitare-bilant-close")
+          .addEventListener("click", () => overlay.remove());
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) overlay.remove();
+        });
+
+        const btnSalveaza = document.getElementById("achitare-bilant-salveaza");
+        btnSalveaza.addEventListener("click", async () => {
+          const msg = document.getElementById("achitare-bilant-msg");
+          const rezultatEl = document.getElementById(
+            "achitare-bilant-rezultat",
+          );
+          rezultatEl.innerHTML = "";
+          const sumaInput = document.getElementById("achitare-bilant-suma");
+          const suma = parseFloat(sumaInput.value);
+          if (!suma || isNaN(suma) || suma <= 0) {
+            msg.className = "text-sm text-center text-red-600";
+            msg.textContent = "Introdu o sumă validă, mai mare decât 0.";
+            return;
+          }
+          const detalii =
+            document.getElementById("achitare-bilant-detalii").value.trim() ||
+            null;
+
+          btnSalveaza.disabled = true;
+          btnSalveaza.textContent = "Se procesează...";
+          msg.className = "text-sm text-center";
+          msg.textContent = "";
+
+          const { data, error } = await supa.rpc("achita_sold_magazin", {
+            p_magazin_id: magazinId,
+            p_suma: suma,
+            p_detalii: detalii,
+            p_user_id: currentUser.id,
+          });
+
+          btnSalveaza.disabled = false;
+          btnSalveaza.textContent = "Distribuie plata";
+
+          if (error) {
+            msg.className = "text-sm text-center text-red-600";
+            msg.textContent = error.message;
+            return;
+          }
+
+          const alocari = data || [];
+          const totalAlocat = alocari.reduce(
+            (s, a) => s + (Number(a.suma_alocata) || 0),
+            0,
+          );
+          const nealocat = Math.max(0, suma - totalAlocat);
+
+          rezultatEl.innerHTML = `
+        <div class="mt-3 pt-3 border-t text-xs" style="border-color:var(--line)">
+          <p class="font-medium text-slate-600 mb-1.5">Alocare rezultată:</p>
+          ${
+            alocari.length
+              ? `<ul class="space-y-1">${alocari
+                  .map(
+                    (a) => `<li class="flex justify-between gap-2">
+                <span>${esc(a.numar_comanda)}</span>
+                <span class="text-slate-500">${fmtNum(a.suma_alocata)} lei · ${a.stadiu_rezultat === "integral" ? "Achitat integral" : "Achitat parțial"}</span>
+              </li>`,
+                  )
+                  .join("")}</ul>`
+              : `<p class="text-slate-400">Nu există comenzi neachitate pentru acest magazin/HUB.</p>`
+          }
+          ${
+            nealocat > 0.005
+              ? `<p class="mt-2 text-amber-600 font-medium">Atenție: ${fmtNum(nealocat)} lei nu au putut fi alocați (depășesc soldul neachitat).</p>`
+              : ""
+          }
+        </div>`;
+
+          inregistreazaLog(
+            "profil",
+            magazinId,
+            "Achitare sold magazin/HUB",
+            `${fmtNum(suma)} lei · ${alocari.length} comandă/comenzi afectate${detalii ? " · " + detalii : ""}`,
+          );
+          toast("Achitarea a fost distribuită pe comenzi.");
+          invalidateCache("hub_magazine");
+          if (onSaved) onSaved();
+        });
+      }
+
+      async function renderIstoricPlatiModal(
+        magazinId,
+        magazinNume,
+        magazinFiliala,
+      ) {
+        const overlay = document.createElement("div");
+        overlay.id = "istoric-plati-overlay";
+        overlay.className =
+          "fixed inset-0 z-40 flex items-center justify-center px-4 py-8 overflow-y-auto";
+        overlay.style.background = "rgba(15,20,25,0.55)";
+
+        overlay.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg fade-in my-auto relative">
+      <button type="button" id="istoric-plati-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+      <div class="flex items-center justify-between pr-6 mb-1">
+        <h2 class="text-lg font-bold">Istoric plăți</h2>
+        <button type="button" id="istoric-plati-export" class="rounded-md px-3 py-1.5 text-xs font-medium border" style="border-color:var(--line)">Exportă Excel</button>
+      </div>
+      <p class="text-sm text-slate-500 mb-3">${esc(magazinNume)}${magazinFiliala ? " - " + esc(magazinFiliala) : ""}</p>
+      <div id="istoric-plati-body" class="max-h-[60vh] overflow-y-auto">
+        <div class="text-sm text-slate-400">Se încarcă...</div>
+      </div>
+    </div>`;
+        document.body.appendChild(overlay);
+
+        document
+          .getElementById("istoric-plati-close")
+          .addEventListener("click", () => overlay.remove());
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) overlay.remove();
+        });
+
+        const bodyEl = document.getElementById("istoric-plati-body");
+        const exportBtn = document.getElementById("istoric-plati-export");
+        exportBtn.disabled = true;
+
+        const { data, error } = await supa.rpc("istoric_plati_magazin", {
+          p_magazin_id: magazinId,
+          p_user_id: currentUser.id,
+        });
+
+        if (error) {
+          bodyEl.innerHTML = `<div class="text-red-600 text-sm">Eroare la încărcare: ${esc(error.message)}</div>`;
+          return;
+        }
+
+        const plati = grupeazaIstoricPlati(data || []);
+
+        if (!plati.length) {
+          bodyEl.innerHTML = `<div class="text-sm text-slate-400">Nu există plăți înregistrate pentru acest magazin/HUB.</div>`;
+          return;
+        }
+
+        bodyEl.innerHTML = plati
+          .map((p) => {
+            const nealocat = Math.max(
+              0,
+              p.suma_totala -
+                p.alocari.reduce((s, a) => s + (a.suma_alocata || 0), 0),
+            );
+            return `
+          <div class="border rounded-lg p-3 mb-2" style="border-color:var(--line)">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <span class="text-sm font-semibold">${fmtNum(p.suma_totala)} lei</span>
+              <span class="text-xs text-slate-400">${new Date(p.data_plata).toLocaleString("ro-RO")}</span>
+            </div>
+            <div class="text-xs text-slate-500 mb-1">
+              Efectuată de ${esc(p.creat_de_nume || "—")}${p.detalii ? " · " + esc(p.detalii) : ""}
+            </div>
+            <div class="text-xs text-slate-500 mb-2">
+              ${
+                p.sold_inainte !== null && p.sold_inainte !== undefined
+                  ? `Sold neachitat înainte: <span class="font-medium">${fmtNum(p.sold_inainte)} lei</span> · Sold neachitat după: <span class="font-medium">${fmtNum(p.sold_dupa)} lei</span>`
+                  : `<span class="text-slate-400">Sold înainte/după indisponibil (plată efectuată înaintea acestei funcționalități)</span>`
+              }
+            </div>
+            ${
+              p.alocari.length
+                ? `<ul class="text-xs space-y-0.5">
+                ${p.alocari
+                  .map(
+                    (a) => `<li class="flex justify-between gap-2">
+                  <span>${esc(a.numar_comanda || "—")}</span>
+                  <span class="text-slate-500">${fmtNum(a.suma_alocata)} lei · ${a.stadiu_rezultat === "integral" ? "Achitat integral" : "Achitat parțial"}</span>
+                </li>`,
+                  )
+                  .join("")}
+              </ul>`
+                : `<p class="text-xs text-slate-400">Nicio comandă afectată.</p>`
+            }
+            ${
+              nealocat > 0.005
+                ? `<p class="text-xs text-amber-600 font-medium mt-1">${fmtNum(nealocat)} lei nealocați (peste soldul neachitat la momentul plății)</p>`
+                : ""
+            }
+          </div>`;
+          })
+          .join("");
+
+        exportBtn.disabled = false;
+        exportBtn.addEventListener("click", () =>
+          exportIstoricPlatiExcel(magazinNume, plati),
+        );
+      }
+
+      function grupeazaIstoricPlati(randuri) {
+        const map = new Map();
+        randuri.forEach((r) => {
+          if (!map.has(r.plata_id)) {
+            map.set(r.plata_id, {
+              plata_id: r.plata_id,
+              data_plata: r.data_plata,
+              suma_totala: Number(r.suma_totala) || 0,
+              detalii: r.detalii,
+              creat_de_nume: r.creat_de_nume,
+              sold_inainte:
+                r.sold_neachitat_inainte !== null &&
+                r.sold_neachitat_inainte !== undefined
+                  ? Number(r.sold_neachitat_inainte)
+                  : null,
+              sold_dupa:
+                r.sold_neachitat_dupa !== null &&
+                r.sold_neachitat_dupa !== undefined
+                  ? Number(r.sold_neachitat_dupa)
+                  : null,
+              alocari: [],
+            });
+          }
+          if (r.comanda_id) {
+            map.get(r.plata_id).alocari.push({
+              comanda_id: r.comanda_id,
+              numar_comanda: r.numar_comanda,
+              suma_alocata: Number(r.suma_alocata) || 0,
+              stadiu_rezultat: r.stadiu_rezultat,
+            });
+          }
+        });
+        return Array.from(map.values()).sort((a, b) =>
+          (b.data_plata || "").localeCompare(a.data_plata || ""),
+        );
+      }
+
+      async function exportIstoricPlatiExcel(magazinNume, plati) {
+        try {
+          await ensureExcelJS();
+        } catch (e) {
+          toast(e.message || "Nu s-a putut încărca modulul Excel.", true);
+          return;
+        }
+        const antete = [
+          "Data plății",
+          "Efectuată de",
+          "Sumă totală plătită",
+          "Detalii de plată",
+          "Sold neachitat înainte",
+          "Sold neachitat după",
+          "Nr. comandă",
+          "Sumă alocată",
+          "Stadiu rezultat",
+        ];
+        const randuriDate = [];
+        plati.forEach((p) => {
+          const dataPlata = new Date(p.data_plata).toLocaleString("ro-RO");
+          const soldInainte =
+            p.sold_inainte !== null ? Number(p.sold_inainte) : "";
+          const soldDupa = p.sold_dupa !== null ? Number(p.sold_dupa) : "";
+          if (!p.alocari.length) {
+            randuriDate.push([
+              dataPlata,
+              p.creat_de_nume || "",
+              Number(p.suma_totala || 0),
+              p.detalii || "",
+              soldInainte,
+              soldDupa,
+              "",
+              "",
+              "",
+            ]);
+          } else {
+            p.alocari.forEach((a) => {
+              randuriDate.push([
+                dataPlata,
+                p.creat_de_nume || "",
+                Number(p.suma_totala || 0),
+                p.detalii || "",
+                soldInainte,
+                soldDupa,
+                a.numar_comanda || "",
+                Number(a.suma_alocata || 0),
+                a.stadiu_rezultat === "integral"
+                  ? "Achitat integral"
+                  : "Achitat parțial",
+              ]);
+            });
+          }
+        });
+
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet("Istoric plăți");
+        const toateRandurile = [antete, ...randuriDate];
+        ws.columns = antete.map((_, idx) => {
+          let maxLen = 8;
+          toateRandurile.forEach((r) => {
+            const len =
+              r[idx] === null || r[idx] === undefined
+                ? 0
+                : String(r[idx]).length;
+            if (len > maxLen) maxLen = len;
+          });
+          return { width: Math.min(maxLen + 2, 45) };
+        });
+        const bordurConturCelule = {
+          top: { style: "thin" },
+          left: { style: "thin" },
+          bottom: { style: "thin" },
+          right: { style: "thin" },
+        };
+        function stilizeazaRand(row, bold) {
+          row.eachCell({ includeEmpty: true }, (cell) => {
+            cell.alignment = { horizontal: "center", vertical: "middle" };
+            cell.border = bordurConturCelule;
+            if (bold) cell.font = { bold: true };
+          });
+        }
+        stilizeazaRand(ws.addRow(antete), true);
+        randuriDate.forEach((r) => stilizeazaRand(ws.addRow(r), false));
+
+        const buffer = await wb.xlsx.writeBuffer();
+        const blob = new Blob([buffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `Istoric_plati_${(magazinNume || "magazin").replace(/[^\w-]+/g, "_")}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
       }
 
       function renderEmiteBiletModal(magazinId, magazinNume, onSaved) {
