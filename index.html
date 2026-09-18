@@ -8492,7 +8492,7 @@
 
         exportBtn.disabled = false;
         exportBtn.addEventListener("click", () =>
-          exportIstoricPlatiExcel(magazinNume, plati),
+          exportIstoricPlatiExcel(magazinNume, magazinFiliala, plati),
         );
       }
 
@@ -8533,7 +8533,11 @@
         );
       }
 
-      async function exportIstoricPlatiExcel(magazinNume, plati) {
+      async function exportIstoricPlatiExcel(
+        magazinNume,
+        magazinFiliala,
+        plati,
+      ) {
         try {
           await ensureExcelJS();
         } catch (e) {
@@ -8541,6 +8545,8 @@
           return;
         }
         const antete = [
+          "Magazin/HUB",
+          "Filiala",
           "Data plății",
           "Efectuată de",
           "Sumă totală plătită",
@@ -8559,6 +8565,8 @@
           const soldDupa = p.sold_dupa !== null ? Number(p.sold_dupa) : "";
           if (!p.alocari.length) {
             randuriDate.push([
+              magazinNume || "",
+              magazinFiliala || "",
               dataPlata,
               p.creat_de_nume || "",
               Number(p.suma_totala || 0),
@@ -8572,6 +8580,8 @@
           } else {
             p.alocari.forEach((a) => {
               randuriDate.push([
+                magazinNume || "",
+                magazinFiliala || "",
                 dataPlata,
                 p.creat_de_nume || "",
                 Number(p.suma_totala || 0),
