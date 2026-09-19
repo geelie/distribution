@@ -36,6 +36,12 @@
       let transportDeschisId = null;
       let transportFiltre = null;
       let transportFiltruDebounce = null;
+      let transportPickerFiltre = {
+        transportId: null,
+        magazin: "",
+        model: "",
+        vin: "",
+      };
 
       let renderGen = 0;
       function isStaleRender(myGen) {
@@ -7343,6 +7349,27 @@
       // Transporturi — grupare produse de livrat pe camioane/rute
       // ============================================================
 
+      // Dacă un refresh complet al paginii (ex.: refresh realtime) reconstruiește
+      // câmpurile de căutare din Transporturi în timp ce utilizatorul scrie,
+      // focusul și poziția cursorului sunt readuse în același câmp.
+      function salveazaFocusCamp(prefixId) {
+        const a = document.activeElement;
+        if (!a || !a.id || !a.id.startsWith(prefixId)) return null;
+        return { id: a.id, start: a.selectionStart, end: a.selectionEnd };
+      }
+
+      function restaureazaFocusCamp(stare) {
+        if (!stare) return;
+        const el = document.getElementById(stare.id);
+        if (!el) return;
+        el.focus();
+        try {
+          el.setSelectionRange(stare.start, stare.end);
+        } catch (e) {
+          /* ignorat */
+        }
+      }
+
       async function fetchLiniiTransportContext(rows) {
         rows = rows || [];
         const comandaIds = [...new Set(rows.map((r) => r.comanda_id))];
@@ -7426,6 +7453,11 @@
                   : `<input type="checkbox" class="${prefix}-linie-check w-4 h-4 shrink-0" data-linie-id="${l.id}">`
               }
               <span class="truncate">${esc([l.categorie, l.marca, l.model, l.culoare].filter(Boolean).join(" · ") || "—")}${l.cantitate > 1 ? ` (x${l.cantitate})` : ""}</span>
+              ${
+                prefix === "disp" && l.produs_asociat && l.produs_asociat.vin
+                  ? `<span class="font-mono text-[11px] text-slate-500 shrink-0" title="Serie șasiu (VIN)">VIN ${esc(l.produs_asociat.vin)}</span>`
+                  : ""
+              }
               ${
                 l.id_produs
                   ? `<button type="button" data-edit-produs-transport="${l.produs_id}" class="produs-id-link-transport underline decoration-dotted text-slate-500 hover:text-[var(--teal-dark)] font-mono text-[11px] shrink-0" title="Deschide și editează datele produsului">${esc(l.id_produs)}</button>`
@@ -7554,6 +7586,8 @@
         ws.addRow([
           `Transport: ${transport.numar_inmatriculare}${transport.ruta ? " · " + transport.ruta : ""}`,
         ]);
+        ws.addRow([`Șofer: ${transport.sofer || "—"}`]);
+        ws.addRow([`Cazare: ${transport.cazare || "—"}`]);
         ws.addRow([`Data plecării: ${transport.data_plecare}`]);
         ws.addRow([]);
         const toateRandurile = [antete, ...randuriDate];
@@ -7612,6 +7646,8 @@
       <h2 class="text-lg font-bold mb-3 pr-6">Transport nou</h2>
       <form id="form-transport-nou" class="space-y-3">
         <div>${fieldLabel("Nr. înmatriculare")}<input type="text" id="transport-numar" class="${inputBase()}" required></div>
+        <div>${fieldLabel("Șofer")}<input type="text" id="transport-sofer" class="${inputBase()}" required></div>
+        <div>${fieldLabel("Cazare (opțional)")}<input type="text" id="transport-cazare" class="${inputBase()}"></div>
         <div>${fieldLabel("Rută (opțional)")}<input type="text" id="transport-ruta" class="${inputBase()}"></div>
         <div>${fieldLabel("Data plecării")}<input type="date" id="transport-data" class="${inputBase()}" value="${azi}" required></div>
         <div class="flex justify-center pt-1">
@@ -7636,13 +7672,21 @@
             const numar = document
               .getElementById("transport-numar")
               .value.trim();
+            const sofer = document
+              .getElementById("transport-sofer")
+              .value.trim();
+            const cazare = document
+              .getElementById("transport-cazare")
+              .value.trim();
             const ruta = document.getElementById("transport-ruta").value.trim();
             const data = document.getElementById("transport-data").value;
-            if (!numar || !data) return;
+            if (!numar || !sofer || !data) return;
             const { data: rand, error } = await supa
               .from("transporturi")
               .insert({
                 numar_inmatriculare: numar,
+                sofer: sofer,
+                cazare: cazare || null,
                 ruta: ruta || null,
                 data_plecare: data,
                 creat_de: currentUser.id,
@@ -7666,7 +7710,16 @@
       }
 
       async function renderTransportDetaliu(container, transportId) {
+        const focusSalvatPicker = salveazaFocusCamp("transport-picker-filtru-");
         transportDeschisId = transportId;
+        if (String(transportPickerFiltre.transportId) !== String(transportId)) {
+          transportPickerFiltre = {
+            transportId: transportId,
+            magazin: "",
+            model: "",
+            vin: "",
+          };
+        }
         container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
 
         const { data: transport, error } = await supa
@@ -7700,15 +7753,60 @@
           disponibile = await fetchLiniiTransportContext(dispRaw || []);
         }
 
-        const grupDisponibile = grupeazaLiniiPeComanda(disponibile);
         const grupIncarcate = grupeazaLiniiPeComanda(incarcate);
+
+        // Filtrare client-side pentru lista "Produse disponibile de încărcat".
+        // Se reconstruiește DOAR conținutul listei (nu și câmpurile de căutare),
+        // deci cursorul rămâne în câmp după fiecare caracter scris.
+        // Selecția bifată se păstrează între filtrări.
+        const selectateDisp = new Set();
+
+        function potrivesteTokeni(text, filtru) {
+          const tokeni = stripDiacritice(filtru).split(/\s+/).filter(Boolean);
+          if (!tokeni.length) return true;
+          const t = stripDiacritice(text);
+          return tokeni.every((tk) => t.includes(tk));
+        }
+
+        function disponibileFiltrate() {
+          const f = transportPickerFiltre;
+          const vinCautat = stripDiacritice(f.vin).replace(/\s+/g, "");
+          return disponibile.filter(
+            (l) =>
+              potrivesteTokeni(l.magazin_nume, f.magazin) &&
+              potrivesteTokeni(l.model, f.model) &&
+              stripDiacritice(
+                l.produs_asociat && l.produs_asociat.vin,
+              ).includes(vinCautat),
+          );
+        }
+
+        function listaDisponibileHtml() {
+          const filtrate = disponibileFiltrate();
+          if (disponibile.length && !filtrate.length)
+            return `<p class="text-xs text-slate-400 text-center py-4">Niciun produs care să corespundă filtrelor.</p>`;
+          return grupComenziPickerHtml(
+            grupeazaLiniiPeComanda(filtrate),
+            "disp",
+          );
+        }
+
+        function randeazaListaDisponibile() {
+          const listaEl = document.getElementById("transport-picker-lista");
+          if (!listaEl) return;
+          listaEl.innerHTML = listaDisponibileHtml();
+          listaEl.querySelectorAll(".disp-linie-check").forEach((cb) => {
+            cb.checked = selectateDisp.has(cb.dataset.linieId);
+          });
+          bindProdusIdLinks(listaEl);
+        }
 
         container.innerHTML = `
     <button type="button" id="transport-inapoi" class="text-xs text-slate-500 hover:text-slate-700 mb-3">← Înapoi la Transporturi</button>
     <div class="bg-white rounded-xl border p-4 mb-4" style="border-color:var(--line)">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 class="text-base font-bold">${esc(transport.numar_inmatriculare)}${transport.ruta ? " · " + esc(transport.ruta) : ""}</h3>
+          <h3 class="text-base font-bold">${esc(transport.numar_inmatriculare)}${transport.sofer ? " · " + esc(transport.sofer) : ""}${transport.ruta ? " · " + esc(transport.ruta) : ""}</h3>
           <p class="text-xs text-slate-500">Plecare: ${new Date(transport.data_plecare + "T00:00:00").toLocaleDateString("ro-RO")} · ${transport.status === "plecat" ? "Plecat" : "Planificat"}</p>
         </div>
         <div class="flex gap-2">
@@ -7723,8 +7821,15 @@
     <div class="grid grid-cols-2 gap-4">
       <div class="min-w-0">
         <p class="text-sm font-semibold text-slate-700 mb-2">Produse disponibile de încărcat</p>
-        <div class="bg-white rounded-xl border tabel-fix-wrap p-3" style="border-color:var(--line);max-height:calc(100vh - 400px);min-height:200px">
-          ${grupComenziPickerHtml(grupDisponibile, "disp")}
+        <div class="bg-white rounded-xl border flex flex-col" style="border-color:var(--line);max-height:calc(100vh - 400px);min-height:200px">
+          <div class="grid grid-cols-3 gap-2 p-3 border-b shrink-0" style="border-color:var(--line)">
+            <div>${produsFieldLabel("Magazin/Filiala")}<input type="text" id="transport-picker-filtru-magazin" class="${produsInputBase()}" placeholder="ex: Salonta" autocomplete="off" value="${esc(transportPickerFiltre.magazin)}"></div>
+            <div>${produsFieldLabel("Model")}<input type="text" id="transport-picker-filtru-model" class="${produsInputBase()}" placeholder="ex: City" autocomplete="off" value="${esc(transportPickerFiltre.model)}"></div>
+            <div>${produsFieldLabel("VIN")}<input type="text" id="transport-picker-filtru-vin" class="${produsInputBase()} font-mono" placeholder="parte din VIN" autocomplete="off" value="${esc(transportPickerFiltre.vin)}"></div>
+          </div>
+          <div id="transport-picker-lista" class="tabel-fix-wrap p-3 flex-1 min-h-0" style="max-height:none;box-shadow:none">
+            ${listaDisponibileHtml()}
+          </div>
         </div>
         ${
           disponibile.length
@@ -7757,9 +7862,8 @@
           );
 
         const toateLiniileTransport = [...disponibile, ...incarcate];
-        document
-          .querySelectorAll(".produs-id-link-transport")
-          .forEach((btn) => {
+        function bindProdusIdLinks(root) {
+          root.querySelectorAll(".produs-id-link-transport").forEach((btn) => {
             btn.addEventListener("click", () => {
               const linieAsociata = toateLiniileTransport.find(
                 (l) => String(l.produs_id) === btn.dataset.editProdusTransport,
@@ -7779,16 +7883,35 @@
               );
             });
           });
+        }
+        bindProdusIdLinks(document);
 
         if (esteEditabil) {
+          const listaDispEl = document.getElementById("transport-picker-lista");
+          listaDispEl.addEventListener("change", (e) => {
+            const cb = e.target.closest(".disp-linie-check");
+            if (!cb) return;
+            if (cb.checked) selectateDisp.add(cb.dataset.linieId);
+            else selectateDisp.delete(cb.dataset.linieId);
+          });
+          [
+            ["transport-picker-filtru-magazin", "magazin"],
+            ["transport-picker-filtru-model", "model"],
+            ["transport-picker-filtru-vin", "vin"],
+          ].forEach(([idCamp, cheie]) => {
+            document.getElementById(idCamp).addEventListener("input", (e) => {
+              transportPickerFiltre[cheie] = e.target.value;
+              randeazaListaDisponibile();
+            });
+          });
+          restaureazaFocusCamp(focusSalvatPicker);
+
           const btnAdauga = document.getElementById(
             "transport-adauga-selectia",
           );
           if (btnAdauga)
             btnAdauga.addEventListener("click", async () => {
-              const idsSelectate = Array.from(
-                document.querySelectorAll(".disp-linie-check:checked"),
-              ).map((cb) => cb.dataset.linieId);
+              const idsSelectate = Array.from(selectateDisp);
               if (!idsSelectate.length) return;
               const { error: updErr } = await supa
                 .from("comanda_produse")
@@ -7841,6 +7964,7 @@
           start: dataLocalaISO(oLunaInUrma),
           end: dataLocalaISO(azi),
           numar: "",
+          sofer: "",
           ruta: "",
         };
       }
@@ -7850,6 +7974,8 @@
         if (filtre.end) q = q.lte("data_plecare", filtre.end);
         if (filtre.numar.trim())
           q = q.ilike("numar_inmatriculare", `%${ilikeEscape(filtre.numar)}%`);
+        if ((filtre.sofer || "").trim())
+          q = q.ilike("sofer", `%${ilikeEscape(filtre.sofer)}%`);
         if (filtre.ruta.trim())
           q = q.ilike("ruta", `%${ilikeEscape(filtre.ruta)}%`);
         return q;
@@ -7867,6 +7993,8 @@
         }
         const antete = [
           "Nr. înmatriculare",
+          "Șofer",
+          "Cazare",
           "Rută",
           "Data plecării",
           "Status",
@@ -7874,6 +8002,8 @@
         ];
         const randuriDate = transporturi.map((t) => [
           t.numar_inmatriculare || "",
+          t.sofer || "",
+          t.cazare || "",
           t.ruta || "",
           t.data_plecare || "",
           t.status === "plecat" ? "Plecat" : "Planificat",
@@ -7929,6 +8059,7 @@
         if (!transportFiltre) transportFiltre = transportFiltreImplicite();
 
         const pageKey = currentTabKey;
+        const focusSalvatLista = salveazaFocusCamp("transport-filtru-");
 
         container.innerHTML = `
     <div class="bg-white rounded-xl border p-3 mb-3 flex flex-wrap items-end gap-3" style="border-color:var(--line)">
@@ -7945,11 +8076,16 @@
         <input type="text" id="transport-filtru-numar" class="${inputBase()}" placeholder="ex: SM01GEL" value="${esc(transportFiltre.numar)}">
       </div>
       <div class="w-28">
+        ${fieldLabel("Șofer")}
+        <input type="text" id="transport-filtru-sofer" class="${inputBase()}" placeholder="nume șofer" autocomplete="off" value="${esc(transportFiltre.sofer)}">
+      </div>
+      <div class="w-28">
         ${fieldLabel("Rută")}
         <input type="text" id="transport-filtru-ruta" class="${inputBase()}" placeholder="cuvinte cheie" value="${esc(transportFiltre.ruta)}">
       </div>
     </div>
     <div id="transporturi-rezultate"></div>`;
+        restaureazaFocusCamp(focusSalvatLista);
 
         async function refreshRezultate() {
           const rezEl = document.getElementById("transporturi-rezultate");
@@ -7993,6 +8129,8 @@
             return `
           <tr class="border-b last:border-0" style="border-color:var(--line)">
             <td class="px-3 py-3 text-xs font-medium">${esc(t.numar_inmatriculare)}</td>
+            <td class="px-3 py-3 text-xs">${esc(t.sofer || "—")}</td>
+            <td class="px-3 py-3 text-xs">${esc(t.cazare || "—")}</td>
             <td class="px-3 py-3 text-xs">${esc(t.ruta || "—")}</td>
             <td class="px-3 py-3 text-xs">${new Date(t.data_plecare + "T00:00:00").toLocaleDateString("ro-RO")}</td>
             <td class="px-3 py-3 text-xs">${statusBadge}</td>
@@ -8014,10 +8152,12 @@
       </div>
     </div>
     <div class="bg-white rounded-xl border tabel-fix-wrap" style="border-color:var(--line)">
-      <table class="w-full text-sm" style="min-width:800px">
+      <table class="w-full text-sm" style="min-width:1000px">
         <thead>
           <tr class="text-left text-slate-500 border-b" style="border-color:var(--line)">
             <th class="px-3 py-3 font-medium">Nr. înmatriculare</th>
+            <th class="px-3 py-3 font-medium">Șofer</th>
+            <th class="px-3 py-3 font-medium">Cazare</th>
             <th class="px-3 py-3 font-medium">Rută</th>
             <th class="px-3 py-3 font-medium">Data plecării</th>
             <th class="px-3 py-3 font-medium">Status</th>
@@ -8029,7 +8169,7 @@
           ${
             (transporturi || []).length
               ? transporturi.map((t) => transportRandHtml(t)).join("")
-              : `<tr><td colspan="6" class="px-3 py-4 text-center text-slate-400 text-xs">Niciun transport găsit.</td></tr>`
+              : `<tr><td colspan="8" class="px-3 py-4 text-center text-slate-400 text-xs">Niciun transport găsit.</td></tr>`
           }
         </tbody>
       </table>
@@ -8128,6 +8268,7 @@
         bindFiltru("transport-filtru-start", "start", "change", true);
         bindFiltru("transport-filtru-end", "end", "change", true);
         bindFiltru("transport-filtru-numar", "numar", "input");
+        bindFiltru("transport-filtru-sofer", "sofer", "input");
         bindFiltru("transport-filtru-ruta", "ruta", "input");
 
         await refreshRezultate();
