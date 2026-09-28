@@ -317,6 +317,10 @@
           admin: "Admin",
           superadmin: "Super Admin",
           magazin_hub: "Magazin-HUB",
+          asm_operator: "Asamblare",
+          asm_remediere: "Remediere",
+          asm_ctc: "CTC",
+          asm_admin: "Admin asamblare",
         };
         return map[role] || "Fără rol";
       }
@@ -416,6 +420,9 @@
           superadmin: ["Super Admin", "role-superadmin"],
           magazin_hub: ["Magazin-HUB", "role-magazin-hub"],
         };
+        if (role && role.startsWith("asm_")) {
+          return `<span class="role-pill" style="background:#ccfbf1;color:#0b9b82">${esc(roleLabelText(role))}</span>`;
+        }
         const [label, cls] = map[role] || ["Fără rol", "role-none"];
         return `<span class="role-pill ${cls}">${label}</span>`;
       }
@@ -801,6 +808,10 @@
           renderPendingRole();
           return;
         }
+        if (currentProfile.role.startsWith("asm_")) {
+          renderAsmRedirect();
+          return;
+        }
 
         const tabs = tabsForRole(currentProfile.role);
 
@@ -835,6 +846,11 @@
                 : ""
           }
         </div>
+        ${
+          currentProfile.role === "superadmin"
+            ? `<a href="https://geelie.github.io/asamblare/" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-xs mb-3 rounded-md px-2 py-1 font-medium" style="background:rgba(15,191,159,0.15);color:#5eead4">⚙️ Asamblare</a>`
+            : ""
+        }
         <div class="flex items-center gap-2 flex-wrap">
           <button id="btn-change-pass" class="text-xs text-slate-300 hover:text-white underline">Schimbă parola</button>
           <span class="text-slate-600 text-xs">·</span>
@@ -1926,6 +1942,28 @@
           });
       }
 
+      function renderAsmRedirect() {
+        app.innerHTML = `
+  <div class="min-h-screen flex items-center justify-center px-4" style="background:var(--bg)">
+    <div class="max-w-md text-center bg-white rounded-2xl shadow p-8 fade-in">
+      <div class="w-12 h-12 mx-auto rounded-full flex items-center justify-center mb-4" style="background:#CCFBF1">
+        <span class="text-xl">⚙️</span>
+      </div>
+      <h2 class="font-bold text-lg mb-2">Contul tău este pentru aplicația Asamblare</h2>
+      <p class="text-sm text-slate-500 mb-6">Rolul ${esc(roleLabelText(currentProfile.role))} nu are acces în Geeli Distribution. Folosește aplicația Asamblare.</p>
+      <a href="https://geelie.github.io/asamblare/" class="inline-block rounded-lg px-4 py-2 text-sm font-semibold text-white mb-4" style="background:var(--teal-dark)">Deschide Asamblare</a>
+      <div>
+        <button id="btn-logout-asm" class="text-sm text-slate-500 underline">Deconectare</button>
+      </div>
+    </div>
+  </div>`;
+        document
+          .getElementById("btn-logout-asm")
+          .addEventListener("click", async () => {
+            await supa.auth.signOut();
+          });
+      }
+
       function renderPendingRole() {
         app.innerHTML = `
   <div class="min-h-screen flex items-center justify-center px-4" style="background:var(--bg)">
@@ -2051,6 +2089,10 @@
         <option value="agent" ${p.role === "agent" ? "selected" : ""}>Agent</option>
         <option value="admin" ${p.role === "admin" ? "selected" : ""}>Admin</option>
         <option value="superadmin" ${p.role === "superadmin" ? "selected" : ""} ${!viewerIsSuperadmin ? "disabled" : ""}>Super Admin</option>
+        <option value="asm_operator" ${p.role === "asm_operator" ? "selected" : ""}>Asamblare</option>
+        <option value="asm_remediere" ${p.role === "asm_remediere" ? "selected" : ""}>Remediere</option>
+        <option value="asm_ctc" ${p.role === "asm_ctc" ? "selected" : ""}>CTC</option>
+        <option value="asm_admin" ${p.role === "asm_admin" ? "selected" : ""}>Admin asamblare</option>
       </select>
     </td>
     <td class="px-3 py-2">
@@ -2617,10 +2659,12 @@
         produsComandaMap,
         opts,
         notificariActive,
+        asmStadiuMap,
       ) {
         const showAgent = !opts || opts.showAgent !== false;
         const showMagazin = !!(opts && opts.showMagazin);
         const showComenziFields = !opts || opts.showComenziFields !== false;
+        const showSelectie = !!(opts && opts.showSelectie);
         return `
     <div class="bg-white rounded-xl border tabel-fix-wrap" style="border-color:var(--line)">
       <table class="w-full text-sm min-w-[1500px]">
@@ -2636,6 +2680,7 @@
             <th class="px-3 py-3 font-medium">Model</th>
             <th class="px-3 py-3 font-medium">Culoare</th>
             <th class="px-3 py-3 font-medium">VIN</th>
+            ${showSelectie ? '<th class="px-3 py-3 font-medium"><input type="checkbox" id="dc-select-all" class="w-4 h-4" title="Selectează / deselectează toate produsele afișate"></th>' : ""}
             <th class="px-3 py-3 font-medium">Preț intrare</th>
             <th class="px-3 py-3 font-medium">Alte costuri</th>
             <th class="px-3 py-3 font-medium">Total intrare</th>
@@ -2660,6 +2705,7 @@
               produsComandaMap ? produsComandaMap.get(p.id) : null,
               opts,
               notificariActive,
+              asmStadiuMap,
             ),
           )
           .join("")}</tbody>
@@ -2702,14 +2748,59 @@
         totalCount,
         pageKey,
         notificariActive,
+        asmStadiuMap,
       ) {
+        const areSelectie = esteAdminSauSuperadmin();
+        depozitListaCurenta = stocDisponibil;
+        // Selecția rămâne doar pentru produsele afișate acum (schimbarea
+        // căutării/paginii nu lasă produse selectate „invizibile”).
+        const idsAfisate = new Set(stocDisponibil.map((p) => String(p.id)));
+        Array.from(depozitSelectie).forEach((id) => {
+          if (!idsAfisate.has(id)) depozitSelectie.delete(id);
+        });
         container.innerHTML = `
     <div class="mb-4 flex items-center justify-between gap-3 flex-wrap">
       <p class="text-sm text-slate-500">${totalCount} produs${totalCount === 1 ? "" : "e"} disponibil${totalCount === 1 ? "" : "e"} în stocul depozitului central</p>
       <button id="btn-add-produs" class="btn-primary rounded-lg px-4 py-2 text-sm">+ Adaugă produs nou</button>
     </div>
-    ${renderProductsTableHtml(stocDisponibil, agenti, magazine, reservedIds, null, { showAgent: false, showMagazin: false, showComenziFields: false }, notificariActive)}
+    ${renderProductsTableHtml(stocDisponibil, agenti, magazine, reservedIds, null, { showAgent: false, showMagazin: false, showComenziFields: false, showSelectie: areSelectie }, notificariActive, asmStadiuMap)}
     ${paginationBarHtml(pageKey, totalCount)}`;
+
+        if (areSelectie) {
+          const selectAllBox = container.querySelector("#dc-select-all");
+          const rowChecks = Array.from(
+            container.querySelectorAll(".dc-row-check"),
+          );
+          const sincronizeazaHeader = () => {
+            if (!selectAllBox) return;
+            const nBifate = rowChecks.filter((cb) => cb.checked).length;
+            selectAllBox.checked =
+              rowChecks.length > 0 && nBifate === rowChecks.length;
+            selectAllBox.indeterminate =
+              nBifate > 0 && nBifate < rowChecks.length;
+          };
+          rowChecks.forEach((cb) => {
+            cb.checked = depozitSelectie.has(cb.dataset.id);
+            cb.addEventListener("change", () => {
+              if (cb.checked) depozitSelectie.add(cb.dataset.id);
+              else depozitSelectie.delete(cb.dataset.id);
+              sincronizeazaHeader();
+              actualizeazaButonPretUnitar();
+            });
+          });
+          if (selectAllBox) {
+            selectAllBox.addEventListener("change", () => {
+              rowChecks.forEach((cb) => {
+                cb.checked = selectAllBox.checked;
+                if (selectAllBox.checked) depozitSelectie.add(cb.dataset.id);
+                else depozitSelectie.delete(cb.dataset.id);
+              });
+              selectAllBox.indeterminate = false;
+              actualizeazaButonPretUnitar();
+            });
+          }
+          sincronizeazaHeader();
+        }
 
         stocDisponibil.forEach((p) =>
           bindProductRow(
@@ -2832,6 +2923,7 @@
         const reservedIds = new Set((linii || []).map((l) => l.produs_id));
         const notificariActive =
           await fetchProduseCuNotificariActive(produsIds);
+        const asmStadiuMap = await fetchAsmStadiuMap(produsIds);
 
         const tvaProcentCurent = Math.round(TVA_RATE * 10000) / 100;
 
@@ -2845,9 +2937,46 @@
           stocDisponibil: produse || [],
           reservedIds,
           notificariActive,
+          asmStadiuMap,
           tvaProcentCurent,
           totalCount: count || 0,
         };
+      }
+
+      const ASM_STADIU_LABEL = {
+        in_asamblare: ["În asamblare", "bg-amber-100 text-amber-700"],
+        in_remediere: ["În remediere", "bg-red-100 text-red-700"],
+        asteapta_ctc: ["Așteaptă CTC", "bg-slate-100 text-slate-600"],
+        in_ctc: ["În CTC", "bg-blue-100 text-blue-700"],
+        ctc_avizat: ["Avizat CTC", "bg-emerald-100 text-emerald-700"],
+      };
+
+      async function fetchAsmStadiuMap(produsIds) {
+        const map = new Map();
+        if (
+          !produsIds.length ||
+          !["admin", "superadmin"].includes(currentProfile?.role)
+        )
+          return map;
+        const { data, error } = await supa
+          .from("v_produse_stadiu")
+          .select("produs_id, stadiu")
+          .in("produs_id", produsIds);
+        if (error || !data) return map;
+        data.forEach((r) => map.set(r.produs_id, r.stadiu));
+        return map;
+      }
+
+      function asmStadiuBadgeHtml(produsId, asmStadiuMap) {
+        if (!asmStadiuMap) return "";
+        const stadiu = asmStadiuMap.get(produsId);
+        if (!stadiu) return "";
+        const [label, cls] = ASM_STADIU_LABEL[stadiu] || [
+          stadiu,
+          "bg-slate-100 text-slate-600",
+        ];
+        const poateFiAsignat = stadiu === "ctc_avizat";
+        return `<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}" title="${poateFiAsignat ? "Produs avizat CTC, poate fi asignat unei comenzi" : "Produs în fluxul de asamblare, nu poate fi asignat unei comenzi până nu primește aviz CTC"}">${esc(label)}</span>`;
       }
 
       async function renderDepozitCentral(container) {
@@ -2863,6 +2992,7 @@
 
         container.innerHTML = `
     <div class="mb-4 flex items-center justify-end gap-2 text-sm">
+      ${esteAdminSauSuperadmin() ? '<button id="btn-pret-unitar" type="button" class="rounded-md px-3 py-1 text-xs font-semibold border text-slate-400 cursor-not-allowed" style="border-color:var(--line)" disabled title="Bifează produsele cărora vrei să le aplici același preț">Preț unitar</button>' : ""}
       <button id="btn-deschide-tva" class="rounded-md px-2 py-0.5 text-[10px] font-semibold border text-slate-500 hover:bg-slate-50 hover:text-slate-700" style="border-color:var(--line)" title="Setare cotă TVA">TVA</button>
     </div>
     <div id="depozit-subtab-content"></div>`;
@@ -2882,12 +3012,319 @@
           d.totalCount,
           pageKey,
           d.notificariActive,
+          d.asmStadiuMap,
         );
 
         document
           .getElementById("btn-deschide-tva")
           .addEventListener("click", () => {
             renderTvaModal(d.tvaProcentCurent);
+          });
+
+        const btnPretUnitar = document.getElementById("btn-pret-unitar");
+        if (btnPretUnitar) {
+          actualizeazaButonPretUnitar();
+          btnPretUnitar.addEventListener("click", () => {
+            const selectate = depozitListaCurenta.filter((p) =>
+              depozitSelectie.has(String(p.id)),
+            );
+            if (!selectate.length) return;
+            renderPretUnitarModal(selectate, refresh);
+          });
+        }
+      }
+
+      // ===== Depozit central: selecție multiplă + "Preț unitar" =====
+      const depozitSelectie = new Set();
+      let depozitListaCurenta = [];
+
+      function esteAdminSauSuperadmin() {
+        return ["admin", "superadmin"].includes(currentProfile?.role);
+      }
+
+      function actualizeazaButonPretUnitar() {
+        const btn = document.getElementById("btn-pret-unitar");
+        if (!btn) return;
+        const n = depozitSelectie.size;
+        btn.disabled = !n;
+        btn.textContent = n ? `Preț unitar (${n})` : "Preț unitar";
+        btn.classList.toggle("btn-primary", !!n);
+        btn.classList.toggle("text-slate-400", !n);
+        btn.classList.toggle("cursor-not-allowed", !n);
+      }
+
+      // Inserare în lot în jurnal (evită sute de cereri separate).
+      async function inregistreazaLogLot(randuri) {
+        if (!randuri.length) return;
+        try {
+          const numeUtilizator = currentProfile
+            ? currentProfile.nume || currentProfile.email
+            : null;
+          const efectuatDeNume =
+            numeUtilizator && currentProfile && currentProfile.role
+              ? `${numeUtilizator} (${roleLabelText(currentProfile.role)})`
+              : numeUtilizator;
+          const toate = randuri.map((r) => ({
+            tip_entitate: "produs",
+            entitate_id: r.entitateId,
+            actiune: r.actiune,
+            detalii: r.detalii || null,
+            efectuat_de: currentUser ? currentUser.id : null,
+            efectuat_de_nume: efectuatDeNume,
+          }));
+          for (let i = 0; i < toate.length; i += 200) {
+            await supa.from("jurnal_actiuni").insert(toate.slice(i, i + 200));
+          }
+        } catch (e) {}
+      }
+
+      function renderPretUnitarModal(produseSelectate, onSaved) {
+        const overlay = document.createElement("div");
+        overlay.id = "pret-unitar-overlay";
+        overlay.className =
+          "fixed inset-0 z-40 flex items-center justify-center px-4 py-8 overflow-y-auto";
+        overlay.style.background = "rgba(15,20,25,0.55)";
+
+        const n = produseSelectate.length;
+        const categorieOptions = CATEGORII_PRODUS.map(
+          (c) => `<option value="${esc(c)}">${esc(c)}</option>`,
+        ).join("");
+
+        overlay.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto">
+      <div class="flex items-start justify-between mb-1">
+        <h2 class="text-base font-bold">Preț unitar</h2>
+        <button type="button" id="pu-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
+      </div>
+      <p class="text-sm text-slate-500 mb-3">Se aplică pentru <span class="font-semibold">${n}</span> produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}.</p>
+      <form id="form-pret-unitar" class="space-y-2.5">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            ${produsFieldLabel("Categorie produs")}
+            <select id="pu-categorie" class="${produsInputBase()}">
+              <option value="">Neschimbată (opțional)</option>
+              ${categorieOptions}
+              <option value="__alta__">Altă categorie</option>
+            </select>
+            <div id="pu-categorie-alta-wrap" class="hidden flex items-center gap-1">
+              <input type="text" id="pu-categorie-alta" class="${produsInputBase()}" placeholder="Specifică">
+              <button type="button" id="pu-categorie-alta-back" class="text-slate-400 hover:text-slate-600 text-xs shrink-0" title="Alege din listă">↺</button>
+            </div>
+          </div>
+          <div>${produsFieldLabel("Marcă")}<input type="text" id="pu-marca" class="${produsInputBase()}" placeholder="Neschimbată (opțional)" autocomplete="off"></div>
+        </div>
+        ${randurilePretProdusHtml("pu", {})}
+        <div>
+          <div class="flex items-center justify-between">
+            <label class="block text-[11px] font-medium text-slate-600">C.I.V.</label>
+            <div class="flex gap-1">
+              <button type="button" data-civ="" class="pu-civ-btn rounded-md px-2.5 py-1 text-xs font-medium border btn-primary" style="border-color:var(--line)">Neschimbat</button>
+              <button type="button" data-civ="nu" class="pu-civ-btn rounded-md px-2.5 py-1 text-xs font-medium border" style="border-color:var(--line)">Nu</button>
+              <button type="button" data-civ="da" class="pu-civ-btn rounded-md px-2.5 py-1 text-xs font-medium border" style="border-color:var(--line)">Da</button>
+            </div>
+          </div>
+          <input type="hidden" id="pu-civ" value="">
+        </div>
+        <p class="text-xs text-slate-400">Prețul de intrare este obligatoriu. Categoria, marca, C.I.V. și Prețul recomandat se modifică doar dacă le completezi.</p>
+        <div class="flex justify-center pt-1">
+          <button type="submit" class="btn-primary rounded-lg py-2 px-8 text-sm">Aplică prețul la ${n} produs${n === 1 ? "" : "e"}</button>
+        </div>
+        <p id="pu-msg" class="text-sm text-center"></p>
+      </form>
+    </div>`;
+        document.body.appendChild(overlay);
+
+        document
+          .getElementById("pu-close")
+          .addEventListener("click", () => overlay.remove());
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) overlay.remove();
+        });
+
+        const catSelect = document.getElementById("pu-categorie");
+        const catAltaWrap = document.getElementById("pu-categorie-alta-wrap");
+        const catAlta = document.getElementById("pu-categorie-alta");
+        catSelect.addEventListener("change", () => {
+          if (catSelect.value === "__alta__") {
+            catSelect.classList.add("hidden");
+            catAltaWrap.classList.remove("hidden");
+            catAlta.value = "";
+            catAlta.focus();
+          }
+        });
+        document
+          .getElementById("pu-categorie-alta-back")
+          .addEventListener("click", () => {
+            catAltaWrap.classList.add("hidden");
+            catSelect.classList.remove("hidden");
+            catSelect.value = "";
+            catAlta.value = "";
+          });
+
+        const {
+          intrareInput: puIntrare,
+          alteInput: puAlte,
+          totalIntrareInput: puTotalIntrare,
+          adaosValoareInput: puAdaos,
+          totalInput: puTotal,
+          tvaInput: puTva,
+          discountInput: puDiscount,
+          discountTipInput: puDiscountTip,
+          updateTotalTva: puUpdateTotalTva,
+        } = bindPretFieldsProdus("pu");
+
+        overlay.querySelectorAll(".pu-discount-tip-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            puDiscountTip.value = btn.dataset.tip;
+            overlay
+              .querySelectorAll(".pu-discount-tip-btn")
+              .forEach((b) => b.classList.toggle("btn-primary", b === btn));
+            puUpdateTotalTva();
+          });
+        });
+
+        const puCiv = document.getElementById("pu-civ");
+        overlay.querySelectorAll(".pu-civ-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            puCiv.value = btn.dataset.civ;
+            overlay
+              .querySelectorAll(".pu-civ-btn")
+              .forEach((b) => b.classList.toggle("btn-primary", b === btn));
+          });
+        });
+
+        document
+          .getElementById("form-pret-unitar")
+          .addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const msg = document.getElementById("pu-msg");
+            const btn = e.target.querySelector('button[type="submit"]');
+
+            const intrare = parseFloat(puIntrare.value);
+            if (isNaN(intrare) || intrare <= 0) {
+              msg.className = "text-sm text-center text-red-600";
+              msg.textContent = "Introdu prețul de intrare (obligatoriu).";
+              puIntrare.focus();
+              return;
+            }
+
+            const categorieVal = !catAltaWrap.classList.contains("hidden")
+              ? catAlta.value.trim()
+              : catSelect.value && catSelect.value !== "__alta__"
+                ? catSelect.value
+                : "";
+            const marcaVal = document.getElementById("pu-marca").value.trim();
+            const pretRecomandatStr = document
+              .getElementById("pu-pret-recomandat")
+              .value.trim();
+
+            const payload = {
+              pret_intrare: intrare,
+              pret_vanzare: parseFloat(puTotalIntrare.value) || null,
+              alte_costuri: parseFloat(puAlte.value) || 0,
+              adaos: puAdaos.value.trim() ? parseFloat(puAdaos.value) : null,
+              total_fara_tva: puTotal.value.trim()
+                ? parseFloat(puTotal.value)
+                : null,
+              pret_cu_tva: puTva.value.trim() ? parseFloat(puTva.value) : null,
+              discount: puDiscount.value.trim()
+                ? parseFloat(puDiscount.value)
+                : 0,
+              discount_tip: puDiscountTip.value,
+              updated_at: new Date().toISOString(),
+            };
+            if (pretRecomandatStr !== "")
+              payload.pret_recomandat = parseFloat(pretRecomandatStr);
+            if (categorieVal) payload.categorie = categorieVal;
+            if (marcaVal) payload.marca = marcaVal;
+            if (puCiv.value) payload.civ = puCiv.value === "da";
+
+            btn.disabled = true;
+            btn.textContent = "Se salvează...";
+            msg.className = "text-sm text-center text-slate-400";
+            msg.textContent = `Se aplică prețurile (0/${n})...`;
+
+            const actualizate = new Set();
+            let eroareText = "";
+            const LOT = 100;
+            for (let i = 0; i < n; i += LOT) {
+              const lot = produseSelectate.slice(i, i + LOT);
+              const { data, error } = await supa
+                .from("produse")
+                .update(payload)
+                .in(
+                  "id",
+                  lot.map((p) => p.id),
+                )
+                .select("id");
+              if (error) {
+                eroareText = error.message;
+                continue;
+              }
+              (data || []).forEach((r) => actualizate.add(String(r.id)));
+              msg.textContent = `Se aplică prețurile (${actualizate.size}/${n})...`;
+            }
+
+            const reusite = produseSelectate.filter((p) =>
+              actualizate.has(String(p.id)),
+            );
+
+            const randuriLog = [];
+            reusite.forEach((p) => {
+              modificariPretProdus(p, payload).forEach((m) => {
+                randuriLog.push({
+                  entitateId: p.id,
+                  actiune: `Editare "${m.label}"`,
+                  detalii: `${m.vechi} → ${m.nou}`,
+                });
+              });
+              const alte = [];
+              if (
+                payload.categorie !== undefined &&
+                payload.categorie !== p.categorie
+              )
+                alte.push(
+                  `Categorie: ${p.categorie || "—"} → ${payload.categorie}`,
+                );
+              if (payload.marca !== undefined && payload.marca !== p.marca)
+                alte.push(`Marcă: ${p.marca || "—"} → ${payload.marca}`);
+              if (payload.civ !== undefined && payload.civ !== !!p.civ)
+                alte.push(
+                  `C.I.V.: ${p.civ ? "Da" : "Nu"} → ${payload.civ ? "Da" : "Nu"}`,
+                );
+              if (alte.length)
+                randuriLog.push({
+                  entitateId: p.id,
+                  actiune: "Editare date produs",
+                  detalii: `ID produs: ${p.id_produs} · ${alte.join(" · ")} (Preț unitar)`,
+                });
+            });
+            await inregistreazaLogLot(randuriLog);
+
+            if (!reusite.length) {
+              msg.className = "text-sm text-center text-red-600";
+              msg.textContent =
+                "Niciun produs nu a fost actualizat" +
+                (eroareText ? `: ${eroareText}` : ".");
+              btn.disabled = false;
+              btn.textContent = `Aplică prețul la ${n} produs${n === 1 ? "" : "e"}`;
+              return;
+            }
+
+            reusite.forEach((p) => depozitSelectie.delete(String(p.id)));
+            overlay.remove();
+            if (reusite.length < n) {
+              toast(
+                `Prețul a fost aplicat la ${reusite.length} din ${n} produse.` +
+                  (eroareText ? ` Eroare: ${eroareText}` : ""),
+                true,
+              );
+            } else {
+              toast(
+                `Prețul a fost aplicat la ${n} produs${n === 1 ? "" : "e"}.`,
+              );
+            }
+            if (onSaved) onSaved();
           });
       }
 
@@ -3957,10 +4394,12 @@
         comandaInfo,
         opts,
         notificariActive,
+        asmStadiuMap,
       ) {
         const showAgent = !opts || opts.showAgent !== false;
         const showMagazin = !!(opts && opts.showMagazin);
         const showComenziFields = !opts || opts.showComenziFields !== false;
+        const showSelectie = !!(opts && opts.showSelectie);
         const magazinLabel = magazinLabelPentru(
           p.magazin_id,
           magazine,
@@ -3975,6 +4414,7 @@
           <button type="button" data-edit-produs="${p.id}" class="produs-id-link underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide și editează datele produsului">${esc(p.id_produs)}</button>
           ${bulinaNotificarePretHtml(p.id, notificariActive)}
         </div>
+        ${asmStadiuBadgeHtml(p.id, asmStadiuMap)}
         ${isReserved ? `<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700" title="Legat de o comandă, în așteptare de trimitere">Rezervat</span>` : ""}
         ${comandaInfo ? `<button type="button" class="comanda-produs-link inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide comanda inițială">${esc(comandaInfo.numar_comanda)}</button>` : ""}
       </div>
@@ -3987,6 +4427,7 @@
     <td class="px-3 py-3 text-xs">${esc(p.model || "—")}</td>
     <td class="px-3 py-3 text-xs">${esc(p.culoare || "—")}</td>
     <td class="px-3 py-3 text-xs font-mono">${esc(p.vin || "—")}</td>
+    ${showSelectie ? `<td class="px-3 py-3"><input type="checkbox" class="dc-row-check w-4 h-4" data-id="${p.id}"></td>` : ""}
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_intrare)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.alte_costuri)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_vanzare)}</td>
@@ -5884,6 +6325,7 @@
         });
 
         const listEl = document.getElementById("pick-produs-list");
+        let pickAsmMap = new Map();
         function paint(filterQ) {
           const q = (filterQ || "").trim().toLowerCase();
           const filtered = !q
@@ -5903,7 +6345,7 @@
       <button type="button" data-pick="${p.id}" class="pick-produs-item w-full text-left border rounded-lg px-3 py-2 text-sm hover:bg-slate-50" style="border-color:var(--line)">
         <div class="font-medium">${esc(p.categorie || "—")} · ${esc(p.marca || "—")} · ${esc(p.model || "—")} · ${esc(p.culoare || "—")}</div>
         <div class="text-xs text-slate-400 font-mono">${esc(p.id_produs)}${p.vin ? " · VIN " + esc(p.vin) : ""}</div>
-        <div class="text-xs mt-1">C.I.V.: ${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'}</div>
+        <div class="text-xs mt-1 flex items-center gap-1.5">C.I.V.: ${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'} ${asmStadiuBadgeHtml(p.id, pickAsmMap)}</div>
       </button>`,
             )
             .join("");
@@ -5919,6 +6361,12 @@
         document
           .getElementById("pick-produs-search")
           .addEventListener("input", (e) => paint(e.target.value));
+        fetchAsmStadiuMap(available.map((p) => p.id)).then((map) => {
+          pickAsmMap = map;
+          if (document.body.contains(overlay)) {
+            paint(document.getElementById("pick-produs-search")?.value || "");
+          }
+        });
       }
 
       function comandaLineRow(l, context) {
