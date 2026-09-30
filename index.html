@@ -846,11 +846,6 @@
                 : ""
           }
         </div>
-        ${
-          currentProfile.role === "superadmin"
-            ? `<a href="https://geelie.github.io/asamblare/" target="_blank" rel="noopener" class="inline-flex items-center gap-1 text-xs mb-3 rounded-md px-2 py-1 font-medium" style="background:rgba(15,191,159,0.15);color:#5eead4">⚙️ Asamblare</a>`
-            : ""
-        }
         <div class="flex items-center gap-2 flex-wrap">
           <button id="btn-change-pass" class="text-xs text-slate-300 hover:text-white underline">Schimbă parola</button>
           <span class="text-slate-600 text-xs">·</span>
@@ -903,17 +898,21 @@
         const esteAdminSauSuperadmin =
           currentProfile.role === "admin" ||
           currentProfile.role === "superadmin";
-        nav.innerHTML = tabs
-          .map(
-            (t) => `
+        nav.innerHTML =
+          tabs
+            .map(
+              (t) => `
     <button data-key="${t.key}" class="nav-btn w-full text-left px-3 py-2 rounded-lg text-sm font-medium ${t.key === initialKey ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5"}">${
       t.key === "comenzi" && esteAdminSauSuperadmin
         ? `<span class="relative inline-block pr-2">${t.label}<span id="comenzi-badge-dot" class="hidden absolute -top-1 -right-2 block w-2 h-2 rounded-full bg-red-500" style="box-shadow:0 0 0 2px var(--graphite)" title="Există comenzi noi, nedeschise încă"></span></span>`
         : t.label
     }</button>
   `,
-          )
-          .join("");
+            )
+            .join("") +
+          (currentProfile.role === "superadmin"
+            ? `<a href="https://geelie.github.io/asamblare/" target="_blank" rel="noopener" class="block w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-white/5">⚙️ Asamblare</a>`
+            : "");
         nav.querySelectorAll(".nav-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
             nav
@@ -2976,7 +2975,7 @@
           "bg-slate-100 text-slate-600",
         ];
         const poateFiAsignat = stadiu === "ctc_avizat";
-        return `<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}" title="${poateFiAsignat ? "Produs avizat CTC, poate fi asignat unei comenzi" : "Produs în fluxul de asamblare, nu poate fi asignat unei comenzi până nu primește aviz CTC"}">${esc(label)}</span>`;
+        return `<span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}" title="${poateFiAsignat ? "Produs avizat CTC, poate fi asignat unei comenzi" : "Produs în fluxul de asamblare, nu poate fi asignat unei comenzi până nu primește aviz CTC"}">${esc(label)}</span>`;
       }
 
       async function renderDepozitCentral(container) {
@@ -6308,17 +6307,17 @@
         );
 
         overlay.innerHTML = `
-    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg fade-in my-auto">
+    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg fade-in my-auto relative">
+      <button type="button" id="pick-produs-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none" title="Închide">✕</button>
       <h2 class="text-lg font-bold mb-1">Alege produsul din stoc</h2>
       <p class="text-sm text-slate-500 mb-3">Se cere: ${esc(l.categorie || "—")}${l.marca ? " · " + esc(l.marca) : ""}${l.model ? " · " + esc(l.model) : ""}${l.culoare ? " · " + esc(l.culoare) : ""}</p>
       <input type="text" id="pick-produs-search" class="${inputBase()} mb-3" placeholder="Caută după categorie, marcă, model, culoare, VIN...">
       <div id="pick-produs-list" class="space-y-1.5 max-h-72 overflow-y-auto"></div>
-      <button type="button" id="pick-produs-cancel" class="w-full mt-4 rounded-lg py-2.5 text-sm font-medium border" style="border-color:var(--line)">Anulează</button>
     </div>`;
         document.body.appendChild(overlay);
 
         document
-          .getElementById("pick-produs-cancel")
+          .getElementById("pick-produs-close")
           .addEventListener("click", () => overlay.remove());
         overlay.addEventListener("click", (e) => {
           if (e.target === overlay) overlay.remove();
