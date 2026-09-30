@@ -3446,6 +3446,7 @@
       <div class="flex items-center gap-2">
         <input type="file" id="antedepozit-file-input" accept=".xlsx" class="hidden">
         <button id="btn-antedepozit-upload" class="btn-primary rounded-lg px-4 py-2 text-sm">+ Încarcă din Excel</button>
+        <button id="btn-antedepozit-manual" class="btn-primary rounded-lg px-4 py-2 text-sm">+ Încarcă manual</button>
       </div>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
@@ -3575,6 +3576,11 @@
           fileInput.value = "";
           refresh();
         });
+        document
+          .getElementById("btn-antedepozit-manual")
+          .addEventListener("click", () =>
+            renderAntedepozitManualModal(refresh),
+          );
       }
 
       function renderAntedepozitTableHtml(itemi, offset, profileById) {
@@ -4146,6 +4152,284 @@
             );
             onSaved();
           });
+      }
+
+      function renderAntedepozitManualModal(onSaved) {
+        const overlay = document.createElement("div");
+        overlay.id = "antedepozit-manual-overlay";
+        overlay.className =
+          "fixed inset-0 z-40 flex items-center justify-center px-4";
+        overlay.style.background = "rgba(15,20,25,0.55)";
+        const GRID =
+          "display:grid;grid-template-columns:1fr 1.4fr 1fr 2rem;gap:0.5rem;align-items:center";
+        overlay.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-6 w-full fade-in relative" style="max-width:48rem;max-height:90vh;display:flex;flex-direction:column">
+      <button type="button" id="antedepozit-manual-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none" title="Închide">✕</button>
+      <h2 class="text-lg font-bold mb-4 pr-6">Încarcă manual în Antedepozit Import</h2>
+      <div class="text-xs text-slate-500 font-medium mb-1 pr-2" style="${GRID}">
+        <span>Model</span><span>Serie șasiu (VIN)</span><span>Culoare</span><span></span>
+      </div>
+      <div id="antedepozit-manual-rows" class="space-y-2 pr-1" style="overflow-y:auto;min-height:0"></div>
+      <div class="mt-3">
+        <button type="button" id="antedepozit-manual-add-row" class="rounded-md px-3 py-1.5 text-sm font-medium border" style="border-color:var(--line)">+ produs nou</button>
+      </div>
+      <p id="antedepozit-manual-msg" class="text-sm mt-3 text-center"></p>
+      <div class="mt-4 flex justify-center">
+        <button type="button" id="antedepozit-manual-save" class="btn-primary rounded-lg px-5 py-2.5 text-sm font-medium">Adaugă în Antedepozit</button>
+      </div>
+    </div>`;
+        document.body.appendChild(overlay);
+
+        const rowsEl = document.getElementById("antedepozit-manual-rows");
+        const msgEl = document.getElementById("antedepozit-manual-msg");
+        const saveBtn = document.getElementById("antedepozit-manual-save");
+
+        const updateDeleteButtons = () => {
+          const linii = rowsEl.querySelectorAll("[data-manual-row]");
+          linii.forEach((r) => {
+            const b = r.querySelector(".manual-row-delete");
+            b.disabled = linii.length === 1;
+            b.style.opacity = linii.length === 1 ? "0.35" : "1";
+            b.style.cursor = linii.length === 1 ? "not-allowed" : "pointer";
+          });
+        };
+
+        const addRow = () => {
+          const row = document.createElement("div");
+          row.setAttribute("data-manual-row", "");
+          row.style.cssText = GRID;
+          row.innerHTML = `
+        <input type="text" class="manual-model ${inputBase()}" placeholder="Model" autocomplete="off">
+        <input type="text" class="manual-vin ${inputBase()} font-mono" placeholder="Serie șasiu (VIN)" autocomplete="off">
+        <input type="text" class="manual-culoare ${inputBase()}" placeholder="Culoare" autocomplete="off">
+        <button type="button" class="manual-row-delete text-slate-400 hover:text-red-600 flex items-center justify-center" title="Șterge linia" aria-label="Șterge linia">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        </button>`;
+          row
+            .querySelector(".manual-row-delete")
+            .addEventListener("click", () => {
+              if (rowsEl.querySelectorAll("[data-manual-row]").length <= 1)
+                return;
+              row.remove();
+              updateDeleteButtons();
+            });
+          rowsEl.appendChild(row);
+          updateDeleteButtons();
+          return row;
+        };
+
+        addRow();
+
+        const setMsg = (text, cls) => {
+          msgEl.className = "text-sm mt-3 text-center " + cls;
+          msgEl.textContent = text;
+        };
+
+        // Sugestii pentru câmpul Model, din denumirile existente în antedepozit.
+        let modeleExistente = [];
+        (async () => {
+          const set = new Set();
+          const PAGE = 1000;
+          for (let from = 0; ; from += PAGE) {
+            const { data, error } = await supa
+              .from("antedepozit_import")
+              .select("model")
+              .not("model", "is", null)
+              .range(from, from + PAGE - 1);
+            if (error || !data) break;
+            data.forEach((r) => {
+              const m = String(r.model || "").trim();
+              if (m) set.add(m);
+            });
+            if (data.length < PAGE) break;
+          }
+          modeleExistente = Array.from(set).sort((a, b) =>
+            a.localeCompare(b, "ro"),
+          );
+        })();
+
+        const sugDrop = document.createElement("div");
+        sugDrop.className = "bg-white border rounded-md shadow-lg";
+        sugDrop.style.cssText =
+          "position:fixed;z-index:60;display:none;max-height:13rem;overflow-y:auto;border-color:var(--line)";
+        overlay.appendChild(sugDrop);
+        let sugInput = null;
+        let sugIndex = -1;
+
+        const hideSug = () => {
+          sugDrop.style.display = "none";
+          sugDrop.innerHTML = "";
+          sugInput = null;
+          sugIndex = -1;
+        };
+        const highlightSug = () => {
+          Array.from(sugDrop.children).forEach((el, i) => {
+            el.style.background = i === sugIndex ? "#f1f5f9" : "";
+          });
+        };
+        const pickSug = (valoare) => {
+          if (!sugInput) return;
+          sugInput.value = valoare;
+          const inp = sugInput;
+          hideSug();
+          inp.focus();
+        };
+        const showSug = (input) => {
+          const q = input.value.trim().toLowerCase();
+          if (!q) {
+            hideSug();
+            return;
+          }
+          const potriviri = modeleExistente
+            .filter((m) => m.toLowerCase().includes(q) && m.toLowerCase() !== q)
+            .sort((a, b) => {
+              const sa = a.toLowerCase().startsWith(q) ? 0 : 1;
+              const sb = b.toLowerCase().startsWith(q) ? 0 : 1;
+              return sa - sb;
+            })
+            .slice(0, 8);
+          if (!potriviri.length) {
+            hideSug();
+            return;
+          }
+          sugInput = input;
+          sugIndex = -1;
+          sugDrop.innerHTML = potriviri
+            .map(
+              (m) =>
+                `<div class="manual-sug-item px-3 py-1.5 text-sm cursor-pointer hover:bg-slate-100" data-val="${esc(m)}">${esc(m)}</div>`,
+            )
+            .join("");
+          const r = input.getBoundingClientRect();
+          sugDrop.style.left = r.left + "px";
+          sugDrop.style.top = r.bottom + 2 + "px";
+          sugDrop.style.width = r.width + "px";
+          sugDrop.style.display = "block";
+        };
+
+        sugDrop.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          const item = e.target.closest(".manual-sug-item");
+          if (item) pickSug(item.dataset.val);
+        });
+        rowsEl.addEventListener("input", (e) => {
+          if (e.target.classList.contains("manual-model")) showSug(e.target);
+        });
+        rowsEl.addEventListener("focusin", (e) => {
+          if (
+            e.target.classList.contains("manual-model") &&
+            e.target.value.trim()
+          )
+            showSug(e.target);
+        });
+        rowsEl.addEventListener("focusout", (e) => {
+          if (e.target.classList.contains("manual-model")) hideSug();
+        });
+        rowsEl.addEventListener("scroll", hideSug);
+        rowsEl.addEventListener("keydown", (e) => {
+          if (
+            !e.target.classList.contains("manual-model") ||
+            sugDrop.style.display === "none"
+          )
+            return;
+          const items = sugDrop.children;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            sugIndex = (sugIndex + 1) % items.length;
+            highlightSug();
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            sugIndex = (sugIndex - 1 + items.length) % items.length;
+            highlightSug();
+          } else if (e.key === "Enter" && sugIndex >= 0) {
+            e.preventDefault();
+            pickSug(items[sugIndex].dataset.val);
+          } else if (e.key === "Escape") {
+            e.stopPropagation();
+            hideSug();
+          }
+        });
+
+        document
+          .getElementById("antedepozit-manual-close")
+          .addEventListener("click", () => overlay.remove());
+
+        document
+          .getElementById("antedepozit-manual-add-row")
+          .addEventListener("click", () => {
+            const row = addRow();
+            row.querySelector(".manual-model").focus();
+            rowsEl.scrollTop = rowsEl.scrollHeight;
+          });
+
+        saveBtn.addEventListener("click", async () => {
+          const randuri = [];
+          rowsEl.querySelectorAll("[data-manual-row]").forEach((r) => {
+            const model = r.querySelector(".manual-model").value.trim();
+            const vin = r.querySelector(".manual-vin").value.trim();
+            const culoare = r.querySelector(".manual-culoare").value.trim();
+            if (!model && !vin && !culoare) return;
+            randuri.push({
+              model: model || null,
+              vin: vin || null,
+              culoare: culoare || null,
+              created_by: currentUser.id,
+            });
+          });
+
+          if (!randuri.length) {
+            setMsg("Completează cel puțin un produs.", "text-amber-600");
+            return;
+          }
+
+          const vinuri = randuri.map((r) => r.vin).filter((v) => v);
+          const duplicateInForm = vinuri.filter(
+            (v, i) => vinuri.indexOf(v) !== i,
+          );
+          if (duplicateInForm.length) {
+            setMsg(
+              "VIN duplicat în formular: " +
+                Array.from(new Set(duplicateInForm)).join(", "),
+              "text-red-600",
+            );
+            return;
+          }
+
+          saveBtn.disabled = true;
+          setMsg("Se salvează...", "text-slate-400");
+          try {
+            if (vinuri.length) {
+              const { data: existente, error: errEx } = await supa
+                .from("antedepozit_import")
+                .select("vin")
+                .in("vin", vinuri);
+              if (errEx) throw new Error(errEx.message);
+              if (existente && existente.length) {
+                setMsg(
+                  "VIN deja existent în antedepozit: " +
+                    existente.map((r) => r.vin).join(", "),
+                  "text-red-600",
+                );
+                saveBtn.disabled = false;
+                return;
+              }
+            }
+            const { error } = await supa
+              .from("antedepozit_import")
+              .insert(randuri);
+            if (error) throw new Error(error.message);
+            toast(
+              `${randuri.length} produs${randuri.length === 1 ? "" : "e"} adăugat${randuri.length === 1 ? "" : "e"} în antedepozit.`,
+            );
+            overlay.remove();
+            if (onSaved) onSaved();
+          } catch (e) {
+            const errMsg = e && e.message ? e.message : String(e);
+            setMsg("Eroare la salvare: " + errMsg, "text-red-600");
+            toast("Eroare la salvare: " + errMsg, true);
+            saveBtn.disabled = false;
+          }
+        });
       }
 
       async function importAntedepozitExcel(file) {
