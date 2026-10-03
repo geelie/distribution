@@ -2978,6 +2978,106 @@
         return `<span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}" title="${poateFiAsignat ? "Produs avizat CTC, poate fi asignat unei comenzi" : "Produs în fluxul de asamblare, nu poate fi asignat unei comenzi până nu primește aviz CTC"}">${esc(label)}</span>`;
       }
 
+      // ---- Avertizare la legarea produselor care nu sunt "Avizat CTC" ----
+      // Returnează o promisiune: true = utilizatorul a confirmat luarea la
+      // cunoștință, false = a renunțat (Înapoi / click în afară / Escape).
+      function cereConfirmareNeavizatCtc(produs, stadiu, produsNou) {
+        return new Promise((resolve) => {
+          const [label, cls] = ASM_STADIU_LABEL[stadiu] || [
+            "Fără aviz CTC",
+            "bg-slate-100 text-slate-600",
+          ];
+          const ov = document.createElement("div");
+          ov.id = "ctc-warn-overlay";
+          ov.className =
+            "fixed inset-0 flex items-center justify-center px-4 py-8 overflow-y-auto";
+          ov.style.cssText = "background:rgba(15,20,25,0.55);z-index:70";
+          ov.innerHTML = `
+    <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md fade-in my-auto" role="alertdialog" aria-modal="true" aria-labelledby="ctc-warn-title">
+      <h2 id="ctc-warn-title" class="text-lg font-bold mb-2">${produsNou ? "Produs nou, fără aviz CTC" : "Produs neavizat CTC"}</h2>
+      <div class="text-sm mb-3" style="background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:0.5rem;padding:0.625rem 0.75rem">
+        ${
+          produsNou
+            ? "Produsul tocmai adăugat nu are aviz CTC. Dacă îl legi de comandă, el poate ajunge la livrare fără aviz. Dacă alegi „Înapoi”, produsul rămâne în stoc, nelegat de comandă."
+            : "Produsul selectat nu are aviz CTC. Dacă îl legi de comandă, el poate ajunge la livrare fără aviz."
+        }
+      </div>
+      <div class="border rounded-lg px-3 py-2 text-sm mb-3" style="border-color:var(--line)">
+        <div class="font-medium">${esc(produs.categorie || "—")} · ${esc(produs.marca || "—")} · ${esc(produs.model || "—")} · ${esc(produs.culoare || "—")}</div>
+        <div class="text-xs text-slate-400 font-mono">${esc(produs.id_produs)}${produs.vin ? " · VIN " + esc(produs.vin) : ""}</div>
+        <div class="text-xs mt-1 flex items-center gap-1.5">Stadiu: <span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}">${esc(label)}</span></div>
+      </div>
+      <label class="flex items-start gap-2 text-sm mb-4 cursor-pointer">
+        <input type="checkbox" id="ctc-warn-ack" class="mt-0.5">
+        <span>Am luat la cunoștință că acest produs nu este avizat CTC.</span>
+      </label>
+      <div class="flex gap-2 justify-end">
+        <button type="button" id="ctc-warn-cancel" class="rounded-md px-3 py-1.5 text-sm font-semibold border" style="border-color:var(--line)">Înapoi</button>
+        <button type="button" id="ctc-warn-ok" class="btn-primary rounded-md px-3 py-1.5 text-sm font-semibold" disabled style="opacity:.5;cursor:not-allowed">Leagă oricum</button>
+      </div>
+    </div>`;
+          document.body.appendChild(ov);
+
+          const ack = ov.querySelector("#ctc-warn-ack");
+          const okBtn = ov.querySelector("#ctc-warn-ok");
+          function inchide(rezultat) {
+            document.removeEventListener("keydown", onKey, true);
+            ov.remove();
+            resolve(rezultat);
+          }
+          function onKey(e) {
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              inchide(false);
+            }
+          }
+          document.addEventListener("keydown", onKey, true);
+          ack.addEventListener("change", () => {
+            okBtn.disabled = !ack.checked;
+            okBtn.style.opacity = ack.checked ? "1" : ".5";
+            okBtn.style.cursor = ack.checked ? "pointer" : "not-allowed";
+          });
+          okBtn.addEventListener("click", () => {
+            if (ack.checked) inchide(true);
+          });
+          ov.querySelector("#ctc-warn-cancel").addEventListener("click", () =>
+            inchide(false),
+          );
+          ov.addEventListener("click", (e) => {
+            if (e.target === ov) inchide(false);
+          });
+          ack.focus();
+        });
+      }
+
+      // Verifică stadiul CTC (citit proaspăt din v_produse_stadiu, nu din cache)
+      // și cere confirmare dacă produsul nu este avizat.
+      // - produs existent: avertizare doar dacă are stadiu și acesta != ctc_avizat
+      //   (produsele fără stadiu nu sunt în fluxul CTC => fără avertizare);
+      // - produs nou: avertizare dacă nu este avizat CTC.
+      // Returnează { ok, avertizat, stadiu }.
+      async function confirmaLegareFaraAvizCtc(produs, produsNou) {
+        let stadiu = null;
+        try {
+          const map = await fetchAsmStadiuMap([produs.id]);
+          stadiu = map.get(produs.id) || null;
+        } catch (e) {
+          console.error("Verificare stadiu CTC eșuată:", e);
+        }
+        const neavizat = produsNou
+          ? stadiu !== "ctc_avizat"
+          : !!stadiu && stadiu !== "ctc_avizat";
+        if (!neavizat) return { ok: true, avertizat: false, stadiu };
+        const ok = await cereConfirmareNeavizatCtc(produs, stadiu, !!produsNou);
+        return { ok, avertizat: ok, stadiu };
+      }
+
+      function detaliuLogFaraAvizCtc(info) {
+        if (!info || !info.avertizat) return "";
+        const label = (ASM_STADIU_LABEL[info.stadiu] || ["fără stadiu CTC"])[0];
+        return ` · Legat fără aviz CTC (${label}), luare la cunoștință confirmată`;
+      }
+
       async function renderDepozitCentral(container) {
         container.innerHTML = `<div class="text-sm text-slate-400">Se încarcă...</div>`;
         const myGen = renderGen;
@@ -6633,10 +6733,15 @@
             )
             .join("");
           listEl.querySelectorAll(".pick-produs-item").forEach((btn) => {
-            btn.addEventListener("click", () => {
+            btn.addEventListener("click", async () => {
               const produs = available.find((p) => p.id === btn.dataset.pick);
+              if (btn.dataset.verificare === "1") return;
+              btn.dataset.verificare = "1";
+              const info = await confirmaLegareFaraAvizCtc(produs, false);
+              delete btn.dataset.verificare;
+              if (!info.ok) return; // rămâne în lista de alegere
               overlay.remove();
-              onPick(produs);
+              onPick(produs, info);
             });
           });
         }
@@ -6743,7 +6848,7 @@
         const linkBtn = row.querySelector(`[data-link-line="${l.id}"]`);
         if (linkBtn) {
           linkBtn.addEventListener("click", () => {
-            renderPickProductModal(l, context, async (produs) => {
+            renderPickProductModal(l, context, async (produs, infoCtc) => {
               await supa
                 .from("comanda_produse")
                 .update({ produs_id: produs.id, status_linie: "asignat" })
@@ -6754,7 +6859,7 @@
                 "comanda",
                 l.comanda_id,
                 "Asignare produs existent",
-                `ID produs: ${produs.id_produs}`,
+                `ID produs: ${produs.id_produs}${detaliuLogFaraAvizCtc(infoCtc)}`,
               );
               if (lines) syncComandaStatus(l.comanda_id, lines);
               paintLines();
@@ -6768,18 +6873,31 @@
               agenti,
               () => {},
               async (produsNou) => {
+                // Produsul există deja în stoc (salvat de modalul "Produs nou"),
+                // deci contextul se actualizează indiferent de confirmare.
+                context.produse.push(produsNou);
+                const infoCtc = await confirmaLegareFaraAvizCtc(
+                  produsNou,
+                  true,
+                );
+                if (!infoCtc.ok) {
+                  toast(
+                    "Produsul a fost adăugat în stoc, dar nu a fost legat de comandă.",
+                  );
+                  paintLines();
+                  return;
+                }
                 await supa
                   .from("comanda_produse")
                   .update({ produs_id: produsNou.id, status_linie: "asignat" })
                   .eq("id", l.id);
                 l.produs_id = produsNou.id;
                 l.status_linie = "asignat";
-                context.produse.push(produsNou);
                 inregistreazaLog(
                   "comanda",
                   l.comanda_id,
                   "Asignare produs nou",
-                  `ID produs: ${produsNou.id_produs}`,
+                  `ID produs: ${produsNou.id_produs}${detaliuLogFaraAvizCtc(infoCtc)}`,
                 );
                 if (lines) syncComandaStatus(l.comanda_id, lines);
                 paintLines();
