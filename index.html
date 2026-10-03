@@ -6742,6 +6742,27 @@
 
         const listEl = document.getElementById("pick-produs-list");
         let pickAsmMap = new Map();
+        let pickAsmLoaded = false;
+        const pickCerute = new Set(); // VIN-uri (normalizate) cu cerere CTC activă
+        const ctcVinKey = (v) =>
+          String(v || "")
+            .trim()
+            .toUpperCase();
+        // Buton „Trimite spre CTC": doar dacă VIN există și stadiul nu e
+        // în_asamblare / în_remediere / în_ctc / ctc_avizat.
+        function ctcCerereHtml(p) {
+          if (!pickAsmLoaded || !ctcVinKey(p.vin)) return "";
+          const st = pickAsmMap.get(p.id);
+          if (
+            ["in_asamblare", "in_remediere", "in_ctc", "ctc_avizat"].includes(
+              st,
+            )
+          )
+            return "";
+          if (pickCerute.has(ctcVinKey(p.vin)))
+            return `<span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700" title="Verificarea CTC a fost solicitată cu prioritate">Cerut CTC</span>`;
+          return `<span role="button" tabindex="0" data-ctc-cere="${p.id}" class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold border text-violet-700 hover:bg-violet-50 cursor-pointer" style="border-color:#c4b5fd" title="Trimite produsul spre verificare CTC, cu prioritate">Trimite spre CTC</span>`;
+        }
         function paint(filterQ) {
           const q = (filterQ || "").trim().toLowerCase();
           const filtered = !q
@@ -6761,12 +6782,51 @@
       <button type="button" data-pick="${p.id}" class="pick-produs-item w-full text-left border rounded-lg px-3 py-2 text-sm hover:bg-slate-50" style="border-color:var(--line)">
         <div class="font-medium">${esc(p.categorie || "—")} · ${esc(p.marca || "—")} · ${esc(p.model || "—")} · ${esc(p.culoare || "—")}</div>
         <div class="text-xs text-slate-400 font-mono">${esc(p.id_produs)}${p.vin ? " · VIN " + esc(p.vin) : ""}</div>
-        <div class="text-xs mt-1 flex items-center gap-1.5">C.I.V.: ${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'} ${asmStadiuBadgeHtml(p.id, pickAsmMap)}</div>
+        <div class="text-xs mt-1 flex items-center gap-1.5">C.I.V.: ${p.civ ? '<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700">Da</span>' : '<span class="text-slate-400">Nu</span>'} ${asmStadiuBadgeHtml(p.id, pickAsmMap)} ${ctcCerereHtml(p)}</div>
       </button>`,
             )
             .join("");
+          listEl.querySelectorAll("[data-ctc-cere]").forEach((el) => {
+            const trimite = async (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (el.dataset.busy) return;
+              el.dataset.busy = "1";
+              el.textContent = "Se trimite...";
+              const produs = available.find((p) => p.id === el.dataset.ctcCere);
+              const { data, error } = await supa.rpc("ctc_solicita", {
+                p_vin: produs.vin,
+                p_comanda_id: l.comanda_id || null,
+              });
+              if (error) {
+                toast(error.message || "Solicitarea CTC a eșuat.", true);
+                paint(
+                  document.getElementById("pick-produs-search")?.value || "",
+                );
+                return;
+              }
+              pickCerute.add(ctcVinKey(produs.vin));
+              toast(
+                data && data.rezultat === "deja"
+                  ? "Verificarea CTC era deja solicitată."
+                  : "Produsul a fost trimis spre CTC, cu prioritate.",
+              );
+              inregistreazaLog(
+                "comanda",
+                l.comanda_id,
+                "Solicitare CTC prioritar",
+                `ID produs: ${produs.id_produs} · VIN ${produs.vin}`,
+              );
+              paint(document.getElementById("pick-produs-search")?.value || "");
+            };
+            el.addEventListener("click", trimite);
+            el.addEventListener("keydown", (e) => {
+              if (e.key === "Enter" || e.key === " ") trimite(e);
+            });
+          });
           listEl.querySelectorAll(".pick-produs-item").forEach((btn) => {
-            btn.addEventListener("click", async () => {
+            btn.addEventListener("click", async (ev) => {
+              if (ev.target.closest("[data-ctc-cere]")) return;
               const produs = available.find((p) => p.id === btn.dataset.pick);
               if (btn.dataset.verificare === "1") return;
               btn.dataset.verificare = "1";
@@ -6782,8 +6842,24 @@
         document
           .getElementById("pick-produs-search")
           .addEventListener("input", (e) => paint(e.target.value));
-        fetchAsmStadiuMap(available.map((p) => p.id)).then((map) => {
+        fetchAsmStadiuMap(available.map((p) => p.id)).then(async (map) => {
           pickAsmMap = map;
+          try {
+            const vinuri = available
+              .map((p) => ctcVinKey(p.vin))
+              .filter(Boolean);
+            if (vinuri.length) {
+              const { data } = await supa.rpc("ctc_cereri_active", {
+                p_vinuri: vinuri,
+              });
+              (data || []).forEach((r) =>
+                pickCerute.add(ctcVinKey(r.vin ?? r)),
+              );
+            }
+          } catch (e) {
+            console.error("Citire cereri CTC eșuată:", e);
+          }
+          pickAsmLoaded = true;
           if (document.body.contains(overlay)) {
             paint(document.getElementById("pick-produs-search")?.value || "");
           }
