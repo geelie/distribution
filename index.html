@@ -3091,7 +3091,7 @@
 
         container.innerHTML = `
     <div class="mb-4 flex items-center justify-end gap-2 text-sm">
-      ${esteAdminSauSuperadmin() ? '<button id="btn-pret-unitar" type="button" class="rounded-md px-3 py-1 text-xs font-semibold border text-slate-400 cursor-not-allowed" style="border-color:var(--line)" disabled title="Bifează produsele cărora vrei să le aplici același preț">Preț unitar</button>' : ""}
+      ${esteAdminSauSuperadmin() ? '<button id="btn-pret-unitar" type="button" class="rounded-md px-3 py-1 text-xs font-semibold border text-slate-400 cursor-not-allowed" style="border-color:var(--line)" disabled title="Bifează produsele pe care vrei să le editezi în lot">Editare în lot</button>' : ""}
       <button id="btn-deschide-tva" class="rounded-md px-2 py-0.5 text-[10px] font-semibold border text-slate-500 hover:bg-slate-50 hover:text-slate-700" style="border-color:var(--line)" title="Setare cotă TVA">TVA</button>
     </div>
     <div id="depozit-subtab-content"></div>`;
@@ -3133,7 +3133,7 @@
         }
       }
 
-      // ===== Depozit central: selecție multiplă + "Preț unitar" =====
+      // ===== Depozit central: selecție multiplă + "Editare în lot" =====
       const depozitSelectie = new Set();
       let depozitListaCurenta = [];
 
@@ -3146,7 +3146,7 @@
         if (!btn) return;
         const n = depozitSelectie.size;
         btn.disabled = !n;
-        btn.textContent = n ? `Preț unitar (${n})` : "Preț unitar";
+        btn.textContent = n ? `Editare în lot (${n})` : "Editare în lot";
         btn.classList.toggle("btn-primary", !!n);
         btn.classList.toggle("text-slate-400", !n);
         btn.classList.toggle("cursor-not-allowed", !n);
@@ -3192,7 +3192,7 @@
         overlay.innerHTML = `
     <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto">
       <div class="flex items-start justify-between mb-1">
-        <h2 class="text-base font-bold">Preț unitar</h2>
+        <h2 class="text-base font-bold">Editare în lot</h2>
         <button type="button" id="pu-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
       </div>
       <p class="text-sm text-slate-500 mb-3">Se aplică pentru <span class="font-semibold">${n}</span> produs${n === 1 ? "" : "e"} selectat${n === 1 ? "" : "e"}.</p>
@@ -3224,9 +3224,9 @@
           </div>
           <input type="hidden" id="pu-civ" value="">
         </div>
-        <p class="text-xs text-slate-400">Prețul de intrare este obligatoriu. Categoria, marca, C.I.V. și Prețul recomandat se modifică doar dacă le completezi.</p>
+        <p class="text-xs text-slate-400">Se modifică doar câmpurile pe care le completezi. Fără Preț intrare, prețurile existente rămân neschimbate (se aplică doar Categoria, Marca, C.I.V. și Prețul recomandat). Cu Preț intrare, toate câmpurile de preț sunt rescrise.</p>
         <div class="flex justify-center pt-1">
-          <button type="submit" class="btn-primary rounded-lg py-2 px-8 text-sm">Aplică prețul la ${n} produs${n === 1 ? "" : "e"}</button>
+          <button type="submit" class="btn-primary rounded-lg py-2 px-8 text-sm">Aplică la ${n} produs${n === 1 ? "" : "e"}</button>
         </div>
         <p id="pu-msg" class="text-sm text-center"></p>
       </form>
@@ -3299,12 +3299,34 @@
             const msg = document.getElementById("pu-msg");
             const btn = e.target.querySelector('button[type="submit"]');
 
+            // Prețurile se rescriu doar dacă Preț intrare este completat.
+            // Fără el, prețurile existente ale produselor rămân neatinse.
+            const areIntrare = puIntrare.value.trim() !== "";
             const intrare = parseFloat(puIntrare.value);
-            if (isNaN(intrare) || intrare <= 0) {
+            if (areIntrare && (isNaN(intrare) || intrare <= 0)) {
               msg.className = "text-sm text-center text-red-600";
-              msg.textContent = "Introdu prețul de intrare (obligatoriu).";
+              msg.textContent =
+                "Prețul de intrare trebuie să fie un număr mai mare ca 0.";
               puIntrare.focus();
               return;
+            }
+            if (!areIntrare) {
+              const altePreturiCompletate = [
+                puAlte,
+                puTotalIntrare,
+                puAdaos,
+                puTotal,
+                puTva,
+                puDiscount,
+                document.getElementById("pu-adaos-procent"),
+              ].some((inp) => inp && inp.value.trim() !== "");
+              if (altePreturiCompletate) {
+                msg.className = "text-sm text-center text-red-600";
+                msg.textContent =
+                  "Completează Prețul de intrare sau golește celelalte câmpuri de preț.";
+                puIntrare.focus();
+                return;
+              }
             }
 
             const categorieVal = !catAltaWrap.classList.contains("hidden")
@@ -3317,31 +3339,42 @@
               .getElementById("pu-pret-recomandat")
               .value.trim();
 
-            const payload = {
-              pret_intrare: intrare,
-              pret_vanzare: parseFloat(puTotalIntrare.value) || null,
-              alte_costuri: parseFloat(puAlte.value) || 0,
-              adaos: puAdaos.value.trim() ? parseFloat(puAdaos.value) : null,
-              total_fara_tva: puTotal.value.trim()
-                ? parseFloat(puTotal.value)
-                : null,
-              pret_cu_tva: puTva.value.trim() ? parseFloat(puTva.value) : null,
-              discount: puDiscount.value.trim()
-                ? parseFloat(puDiscount.value)
-                : 0,
-              discount_tip: puDiscountTip.value,
-              updated_at: new Date().toISOString(),
-            };
+            const payload = { updated_at: new Date().toISOString() };
+            if (areIntrare) {
+              Object.assign(payload, {
+                pret_intrare: intrare,
+                pret_vanzare: parseFloat(puTotalIntrare.value) || null,
+                alte_costuri: parseFloat(puAlte.value) || 0,
+                adaos: puAdaos.value.trim() ? parseFloat(puAdaos.value) : null,
+                total_fara_tva: puTotal.value.trim()
+                  ? parseFloat(puTotal.value)
+                  : null,
+                pret_cu_tva: puTva.value.trim()
+                  ? parseFloat(puTva.value)
+                  : null,
+                discount: puDiscount.value.trim()
+                  ? parseFloat(puDiscount.value)
+                  : 0,
+                discount_tip: puDiscountTip.value,
+              });
+            }
             if (pretRecomandatStr !== "")
               payload.pret_recomandat = parseFloat(pretRecomandatStr);
             if (categorieVal) payload.categorie = categorieVal;
             if (marcaVal) payload.marca = marcaVal;
             if (puCiv.value) payload.civ = puCiv.value === "da";
 
+            if (Object.keys(payload).length === 1) {
+              msg.className = "text-sm text-center text-red-600";
+              msg.textContent =
+                "Completează cel puțin un câmp (categorie, marcă, C.I.V., preț recomandat sau prețul de intrare).";
+              return;
+            }
+
             btn.disabled = true;
             btn.textContent = "Se salvează...";
             msg.className = "text-sm text-center text-slate-400";
-            msg.textContent = `Se aplică prețurile (0/${n})...`;
+            msg.textContent = `Se aplică modificările (0/${n})...`;
 
             const actualizate = new Set();
             let eroareText = "";
@@ -3361,7 +3394,7 @@
                 continue;
               }
               (data || []).forEach((r) => actualizate.add(String(r.id)));
-              msg.textContent = `Se aplică prețurile (${actualizate.size}/${n})...`;
+              msg.textContent = `Se aplică modificările (${actualizate.size}/${n})...`;
             }
 
             const reusite = produseSelectate.filter((p) =>
@@ -3395,7 +3428,7 @@
                 randuriLog.push({
                   entitateId: p.id,
                   actiune: "Editare date produs",
-                  detalii: `ID produs: ${p.id_produs} · ${alte.join(" · ")} (Preț unitar)`,
+                  detalii: `ID produs: ${p.id_produs} · ${alte.join(" · ")} (Editare în lot)`,
                 });
             });
             await inregistreazaLogLot(randuriLog);
@@ -3406,7 +3439,7 @@
                 "Niciun produs nu a fost actualizat" +
                 (eroareText ? `: ${eroareText}` : ".");
               btn.disabled = false;
-              btn.textContent = `Aplică prețul la ${n} produs${n === 1 ? "" : "e"}`;
+              btn.textContent = `Aplică la ${n} produs${n === 1 ? "" : "e"}`;
               return;
             }
 
@@ -3414,13 +3447,13 @@
             overlay.remove();
             if (reusite.length < n) {
               toast(
-                `Prețul a fost aplicat la ${reusite.length} din ${n} produse.` +
+                `Modificările au fost aplicate la ${reusite.length} din ${n} produse.` +
                   (eroareText ? ` Eroare: ${eroareText}` : ""),
                 true,
               );
             } else {
               toast(
-                `Prețul a fost aplicat la ${n} produs${n === 1 ? "" : "e"}.`,
+                `Modificările au fost aplicate la ${n} produs${n === 1 ? "" : "e"}.`,
               );
             }
             if (onSaved) onSaved();
