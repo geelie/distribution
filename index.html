@@ -2978,6 +2978,80 @@
         return `<span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}" title="${poateFiAsignat ? "Produs avizat CTC, poate fi asignat unei comenzi" : "Produs în fluxul de asamblare, nu poate fi asignat unei comenzi până nu primește aviz CTC"}">${esc(label)}</span>`;
       }
 
+      // ---- „Trimite spre CTC" din modalele „Editează produsul" / „Editare în lot" ----
+      // Eligibilitate = aceeași ca în „Alege produsul din stoc" (VIN existent,
+      // stadiu în afara in_asamblare/in_remediere/in_ctc/ctc_avizat, fără
+      // cerere activă), FĂRĂ dependență de C.I.V.
+      const CTC_STADII_BLOCATE = [
+        "in_asamblare",
+        "in_remediere",
+        "in_ctc",
+        "ctc_avizat",
+      ];
+      const ctcVinKeyGlobal = (v) =>
+        String(v || "")
+          .trim()
+          .toUpperCase();
+
+      async function incarcaStareCtcProduse(produse) {
+        const stadii = await fetchAsmStadiuMap(produse.map((p) => p.id));
+        const cerute = new Set();
+        try {
+          const vinuri = produse
+            .map((p) => ctcVinKeyGlobal(p.vin))
+            .filter(Boolean);
+          if (vinuri.length) {
+            const { data } = await supa.rpc("ctc_cereri_active", {
+              p_vinuri: vinuri,
+            });
+            (data || []).forEach((r) =>
+              cerute.add(ctcVinKeyGlobal(r.vin ?? r)),
+            );
+          }
+        } catch (e) {
+          console.error("Citire cereri CTC eșuată:", e);
+        }
+        return { stadii, cerute };
+      }
+
+      function evalueazaStareCtc(p, vinCurent, stare) {
+        const vin = ctcVinKeyGlobal(
+          vinCurent !== undefined ? vinCurent : p.vin,
+        );
+        const stadiu = stare.stadii.get(p.id) || null;
+        const cerut = !!vin && stare.cerute.has(vin);
+        const inStoc = !p.magazin_id && !p.vandut && !p.vanzare_directa;
+        let label = null;
+        let cls = "bg-slate-100 text-slate-600";
+        if (stadiu) {
+          [label, cls] = ASM_STADIU_LABEL[stadiu] || [stadiu, cls];
+        } else if (cerut) {
+          [label, cls] = ["Cerut CTC", "bg-violet-100 text-violet-700"];
+        } else if (inStoc) {
+          label = "Disponibil";
+        }
+        let motiv = "";
+        if (!inStoc) motiv = "Produsul nu este în stocul central.";
+        else if (!vin) motiv = "Produsul nu are VIN.";
+        else if (CTC_STADII_BLOCATE.includes(stadiu))
+          motiv = `Produsul este deja „${label}".`;
+        else if (cerut) motiv = "Verificarea CTC este deja solicitată.";
+        return { eligibil: !motiv, label, cls, motiv, vin };
+      }
+
+      function ctcBadgeHtml(label, cls) {
+        return `<span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}">${esc(label)}</span>`;
+      }
+
+      async function trimiteProdusSpreCtc(vin) {
+        const { data, error } = await supa.rpc("ctc_solicita", {
+          p_vin: vin,
+          p_comanda_id: null,
+        });
+        if (error) return { ok: false, mesaj: error.message };
+        return { ok: true, deja: !!(data && data.rezultat === "deja") };
+      }
+
       // ---- Avertizare la legarea produselor care nu sunt "Avizat CTC" ----
       // Returnează o promisiune: true = utilizatorul a confirmat luarea la
       // cunoștință, false = a renunțat (Înapoi / click în afară / Escape).
@@ -3224,6 +3298,16 @@
           </div>
           <input type="hidden" id="pu-civ" value="">
         </div>
+        <div>
+          <div class="flex items-center justify-between gap-3">
+            <label id="pu-ctc-label" class="flex items-center gap-2 text-sm font-medium text-slate-700" style="opacity:.5;cursor:not-allowed">
+              <input type="checkbox" id="pu-ctc" class="rounded border-slate-300" disabled>
+              Trimite spre CTC
+            </label>
+            <span id="pu-ctc-count" class="text-xs text-slate-500">se încarcă...</span>
+          </div>
+          <div id="pu-ctc-stari" class="flex items-center flex-wrap gap-1.5 text-xs text-slate-500 mt-1"></div>
+        </div>
         <p class="text-xs text-slate-400">Se modifică doar câmpurile pe care le completezi. Fără Preț intrare, prețurile existente rămân neschimbate (se aplică doar Categoria, Marca, C.I.V. și Prețul recomandat). Cu Preț intrare, toate câmpurile de preț sunt rescrise.</p>
         <div class="flex justify-center pt-1">
           <button type="submit" class="btn-primary rounded-lg py-2 px-8 text-sm">Aplică la ${n} produs${n === 1 ? "" : "e"}</button>
@@ -3290,6 +3374,45 @@
               .querySelectorAll(".pu-civ-btn")
               .forEach((b) => b.classList.toggle("btn-primary", b === btn));
           });
+        });
+
+        // --- „Trimite spre CTC" (lot): doar produsele eligibile ---
+        const puCtc = document.getElementById("pu-ctc");
+        const puCtcLabel = document.getElementById("pu-ctc-label");
+        const puCtcCount = document.getElementById("pu-ctc-count");
+        const puCtcStari = document.getElementById("pu-ctc-stari");
+        let produseEligibileCtc = [];
+        incarcaStareCtcProduse(produseSelectate).then((st) => {
+          if (!document.body.contains(overlay)) return;
+          const evaluari = produseSelectate.map((p) => ({
+            p,
+            ev: evalueazaStareCtc(p, undefined, st),
+          }));
+          produseEligibileCtc = evaluari
+            .filter((x) => x.ev.eligibil)
+            .map((x) => x.p);
+          const grupe = new Map();
+          evaluari.forEach(({ ev }) => {
+            if (!ev.label) return;
+            const g = grupe.get(ev.label) || { n: 0, cls: ev.cls };
+            g.n++;
+            grupe.set(ev.label, g);
+          });
+          puCtcStari.innerHTML = grupe.size
+            ? "Stări: " +
+              [...grupe.entries()]
+                .map(
+                  ([label, g]) =>
+                    `<span class="inline-flex items-center gap-1">${g.n} ${ctcBadgeHtml(label, g.cls)}</span>`,
+                )
+                .join(" ")
+            : "";
+          puCtcCount.textContent = `${produseEligibileCtc.length} din ${n} produse eligibile`;
+          puCtc.disabled = !produseEligibileCtc.length;
+          puCtcLabel.style.opacity = produseEligibileCtc.length ? "" : ".5";
+          puCtcLabel.style.cursor = produseEligibileCtc.length
+            ? ""
+            : "not-allowed";
         });
 
         document
@@ -3364,10 +3487,17 @@
             if (marcaVal) payload.marca = marcaVal;
             if (puCiv.value) payload.civ = puCiv.value === "da";
 
-            if (Object.keys(payload).length === 1) {
+            const trimiteCtc = !!(
+              puCtc &&
+              puCtc.checked &&
+              !puCtc.disabled &&
+              produseEligibileCtc.length
+            );
+            const areModificari = Object.keys(payload).length > 1;
+            if (!areModificari && !trimiteCtc) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent =
-                "Completează cel puțin un câmp (categorie, marcă, C.I.V., preț recomandat sau prețul de intrare).";
+                "Completează cel puțin un câmp (categorie, marcă, C.I.V., preț recomandat, prețul de intrare) sau bifează „Trimite spre CTC”.";
               return;
             }
 
@@ -3379,7 +3509,7 @@
             const actualizate = new Set();
             let eroareText = "";
             const LOT = 100;
-            for (let i = 0; i < n; i += LOT) {
+            for (let i = 0; areModificari && i < n; i += LOT) {
               const lot = produseSelectate.slice(i, i + LOT);
               const { data, error } = await supa
                 .from("produse")
@@ -3397,9 +3527,37 @@
               msg.textContent = `Se aplică modificările (${actualizate.size}/${n})...`;
             }
 
-            const reusite = produseSelectate.filter((p) =>
-              actualizate.has(String(p.id)),
-            );
+            const reusite = areModificari
+              ? produseSelectate.filter((p) => actualizate.has(String(p.id)))
+              : [];
+
+            // Trimitere spre CTC: doar produsele eligibile (și, dacă s-au făcut
+            // modificări, doar cele salvate cu succes).
+            let ctcOk = 0;
+            let ctcEsuat = 0;
+            let ctcEligibile = 0;
+            const ctcTrimise = [];
+            if (trimiteCtc) {
+              const baza = areModificari ? reusite : produseSelectate;
+              const ids = new Set(produseEligibileCtc.map((p) => String(p.id)));
+              const tinte = baza.filter((p) => ids.has(String(p.id)));
+              ctcEligibile = tinte.length;
+              msg.textContent = `Se trimit produsele spre CTC (0/${tinte.length})...`;
+              for (const p of tinte) {
+                const vinCtc = ctcVinKeyGlobal(p.vin);
+                const r = vinCtc
+                  ? await trimiteProdusSpreCtc(p.vin)
+                  : { ok: false, mesaj: "VIN lipsă" };
+                if (r.ok) {
+                  ctcOk++;
+                  if (!r.deja) ctcTrimise.push(p);
+                } else {
+                  ctcEsuat++;
+                  eroareText = eroareText || r.mesaj;
+                }
+                msg.textContent = `Se trimit produsele spre CTC (${ctcOk + ctcEsuat}/${tinte.length})...`;
+              }
+            }
 
             const randuriLog = [];
             reusite.forEach((p) => {
@@ -3431,12 +3589,21 @@
                   detalii: `ID produs: ${p.id_produs} · ${alte.join(" · ")} (Editare în lot)`,
                 });
             });
+            ctcTrimise.forEach((p) =>
+              randuriLog.push({
+                entitateId: p.id,
+                actiune: "Solicitare CTC prioritar",
+                detalii: `ID produs: ${p.id_produs} · VIN ${p.vin} (Editare în lot)`,
+              }),
+            );
             await inregistreazaLogLot(randuriLog);
 
-            if (!reusite.length) {
+            if (!reusite.length && !ctcOk) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent =
-                "Niciun produs nu a fost actualizat" +
+                (areModificari
+                  ? "Niciun produs nu a fost actualizat"
+                  : "Niciun produs nu a fost trimis spre CTC") +
                 (eroareText ? `: ${eroareText}` : ".");
               btn.disabled = false;
               btn.textContent = `Aplică la ${n} produs${n === 1 ? "" : "e"}`;
@@ -3444,16 +3611,32 @@
             }
 
             reusite.forEach((p) => depozitSelectie.delete(String(p.id)));
+            if (!areModificari)
+              produseSelectate.forEach((p) =>
+                depozitSelectie.delete(String(p.id)),
+              );
             overlay.remove();
-            if (reusite.length < n) {
+            const ctcText = trimiteCtc
+              ? ` Trimise spre CTC: ${ctcOk} din ${ctcEligibile} eligibile.`
+              : "";
+            const esecuri =
+              (areModificari && reusite.length < n) || ctcEsuat > 0;
+            if (areModificari) {
               toast(
-                `Modificările au fost aplicate la ${reusite.length} din ${n} produse.` +
-                  (eroareText ? ` Eroare: ${eroareText}` : ""),
-                true,
+                reusite.length < n
+                  ? `Modificările au fost aplicate la ${reusite.length} din ${n} produse.` +
+                      ctcText +
+                      (eroareText ? ` Eroare: ${eroareText}` : "")
+                  : `Modificările au fost aplicate la ${n} produs${n === 1 ? "" : "e"}.` +
+                      ctcText +
+                      (ctcEsuat && eroareText ? ` Eroare: ${eroareText}` : ""),
+                esecuri,
               );
             } else {
               toast(
-                `Modificările au fost aplicate la ${n} produs${n === 1 ? "" : "e"}.`,
+                ctcText.trim() +
+                  (ctcEsuat && eroareText ? ` Eroare: ${eroareText}` : ""),
+                esecuri,
               );
             }
             if (onSaved) onSaved();
@@ -5247,6 +5430,23 @@
             </div>
             <input type="hidden" id="edit-civ" value="${p.civ ? "da" : "nu"}">`;
 
+        const poateTrimiteCtc =
+          currentProfile.role === "admin" ||
+          currentProfile.role === "superadmin";
+        const ctcFieldHtml = poateTrimiteCtc
+          ? `
+        <div>
+          <div class="flex items-center justify-between gap-3">
+            <label id="edit-ctc-label" class="flex items-center gap-2 text-sm font-medium text-slate-700" style="opacity:.5;cursor:not-allowed">
+              <input type="checkbox" id="edit-ctc" class="rounded border-slate-300" disabled>
+              Trimite spre CTC
+            </label>
+            <div class="flex items-center gap-1.5 text-xs text-slate-500">Stare: <span id="edit-ctc-stare" class="text-slate-400">se încarcă...</span></div>
+          </div>
+          <p id="edit-ctc-motiv" class="text-[11px] text-slate-400 mt-1" style="display:none"></p>
+        </div>`
+          : "";
+
         let camputiFieldsHtml;
         if (showMagazinSiSterge) {
           const currentMagazin = magazine.find((m) => m.id === p.magazin_id);
@@ -5282,7 +5482,7 @@
           <div>${produsFieldLabel("Culoare")}<input type="text" id="edit-culoare" class="${produsInputBase()}" value="${esc(p.culoare || "")}"></div>
         </div>
         ${randurilePretProdusHtml("edit", p)}
-        <div>${civFieldHtml}</div>`;
+        <div>${civFieldHtml}</div>${ctcFieldHtml}`;
         } else {
           camputiFieldsHtml = `
         <div class="grid grid-cols-2 gap-2">
@@ -5303,7 +5503,7 @@
           <div>${produsFieldLabel("Culoare")}<input type="text" id="edit-culoare" class="${produsInputBase()}" value="${esc(p.culoare || "")}"></div>
         </div>
         ${randurilePretProdusHtml("edit", p)}
-        <div>${civFieldHtml}</div>`;
+        <div>${civFieldHtml}</div>${ctcFieldHtml}`;
         }
 
         overlay.innerHTML = `
@@ -5487,6 +5687,43 @@
           });
         });
 
+        // --- „Trimite spre CTC": stare + eligibilitate (independent de C.I.V.) ---
+        const ctcCheckEl = document.getElementById("edit-ctc");
+        const ctcLabelEl = document.getElementById("edit-ctc-label");
+        const ctcStareEl = document.getElementById("edit-ctc-stare");
+        const ctcMotivEl = document.getElementById("edit-ctc-motiv");
+        let ctcStareDate = null;
+        let ctcEligibilCurent = false;
+        function actualizeazaCtcEdit() {
+          if (!ctcCheckEl || !ctcStareDate) return;
+          const vinInput = document.getElementById("edit-vin");
+          const ev = evalueazaStareCtc(
+            p,
+            vinInput ? vinInput.value : p.vin,
+            ctcStareDate,
+          );
+          ctcEligibilCurent = ev.eligibil;
+          ctcStareEl.className = "";
+          ctcStareEl.innerHTML = ev.label
+            ? ctcBadgeHtml(ev.label, ev.cls)
+            : '<span class="text-slate-400">—</span>';
+          ctcCheckEl.disabled = !ev.eligibil;
+          if (!ev.eligibil) ctcCheckEl.checked = false;
+          ctcLabelEl.style.opacity = ev.eligibil ? "" : ".5";
+          ctcLabelEl.style.cursor = ev.eligibil ? "" : "not-allowed";
+          ctcMotivEl.textContent = ev.motiv;
+          ctcMotivEl.style.display = ev.motiv ? "" : "none";
+        }
+        if (ctcCheckEl) {
+          incarcaStareCtcProduse([p]).then((st) => {
+            if (!document.body.contains(overlay)) return;
+            ctcStareDate = st;
+            actualizeazaCtcEdit();
+          });
+          const vinEl = document.getElementById("edit-vin");
+          if (vinEl) vinEl.addEventListener("input", actualizeazaCtcEdit);
+        }
+
         document
           .getElementById("form-edit-produs")
           .addEventListener("submit", async (e) => {
@@ -5497,7 +5734,15 @@
             const categorieVal = !catAltaWrap.classList.contains("hidden")
               ? catAlta.value.trim()
               : catSelect.value;
-            if (!categorieVal) {
+            const trimiteCtc = !!(
+              ctcCheckEl &&
+              ctcCheckEl.checked &&
+              !ctcCheckEl.disabled &&
+              ctcEligibilCurent
+            );
+            // Fără categorie, salvarea rămâne blocată, cu excepția cazului în care
+            // se trimite produsul spre CTC (atunci categoria rămâne neschimbată).
+            if (!categorieVal && !trimiteCtc) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent = "Alege sau specifică o categorie.";
               return;
@@ -5549,6 +5794,7 @@
               civ: civVal,
               updated_at: new Date().toISOString(),
             };
+            if (!categorieVal) delete payload.categorie;
 
             let esteRetragere = false;
             let esteTrimitereNoua = false;
@@ -5669,8 +5915,35 @@
               );
             }
 
+            let ctcMesaj = "";
+            let ctcEroare = false;
+            if (trimiteCtc) {
+              const vinCtc = payload.vin || p.vin;
+              const r = vinCtc
+                ? await trimiteProdusSpreCtc(vinCtc)
+                : { ok: false, mesaj: "Produsul nu are VIN." };
+              if (r.ok) {
+                ctcMesaj = r.deja
+                  ? " Verificarea CTC era deja solicitată."
+                  : " Produsul a fost trimis spre CTC.";
+                if (!r.deja)
+                  inregistreazaLog(
+                    "produs",
+                    p.id,
+                    "Solicitare CTC prioritar",
+                    `ID produs: ${p.id_produs} · VIN ${vinCtc}`,
+                  );
+              } else {
+                ctcEroare = true;
+                ctcMesaj = ` Trimiterea spre CTC a eșuat: ${r.mesaj}`;
+              }
+            }
+
             overlay.remove();
-            toast("Produsul a fost actualizat cu succes.");
+            toast(
+              "Produsul a fost actualizat cu succes." + ctcMesaj,
+              ctcEroare,
+            );
             onSaved();
           });
       }
@@ -6287,7 +6560,7 @@
             }
             <div>
               ${fieldLabel("Termen de plată (zile)")}
-              <input type="number" id="comanda-termen-plata" min="0" step="1" class="${inputBase()}" placeholder="ex: 30">
+              <input type="number" id="comanda-termen-plata" min="0" step="1" class="${inputBase()}" placeholder="ex: 30" value="30">
             </div>
           </div>
           <div style="flex:1 1 auto;min-height:0;display:flex;flex-direction:column">
