@@ -2670,6 +2670,7 @@
         <thead>
           <tr class="text-left text-slate-500 border-b" style="border-color:var(--line)">
             <th class="px-3 py-3 font-medium">Nr.</th>
+            ${showSelectie ? '<th class="px-3 py-3 font-medium"><input type="checkbox" id="dc-select-all" class="w-4 h-4" title="Selectează / deselectează toate produsele afișate"></th>' : ""}
             <th class="px-3 py-3 font-medium">ID produs</th>
             ${showAgent ? '<th class="px-3 py-3 font-medium">Agent</th>' : ""}
             ${showMagazin ? '<th class="px-3 py-3 font-medium">Magazin</th>' : ""}
@@ -2679,7 +2680,6 @@
             <th class="px-3 py-3 font-medium">Model</th>
             <th class="px-3 py-3 font-medium">Culoare</th>
             <th class="px-3 py-3 font-medium">VIN</th>
-            ${showSelectie ? '<th class="px-3 py-3 font-medium"><input type="checkbox" id="dc-select-all" class="w-4 h-4" title="Selectează / deselectează toate produsele afișate"></th>' : ""}
             <th class="px-3 py-3 font-medium">Preț intrare</th>
             <th class="px-3 py-3 font-medium">Alte costuri</th>
             <th class="px-3 py-3 font-medium">Total intrare</th>
@@ -5007,6 +5007,7 @@
         return `
   <tr class="border-b last:border-0 align-top ${isReserved ? "bg-amber-50/60" : ""}" style="border-color:var(--line)" data-prow="${p.id}">
     <td class="px-3 py-3 text-slate-400">${nr}</td>
+    ${showSelectie ? `<td class="px-3 py-3"><input type="checkbox" class="dc-row-check w-4 h-4" data-id="${p.id}"></td>` : ""}
     <td class="px-3 py-3 font-mono text-xs">
       <div class="flex flex-col items-start gap-1">
         <div class="flex items-center gap-1">
@@ -5026,7 +5027,6 @@
     <td class="px-3 py-3 text-xs">${esc(p.model || "—")}</td>
     <td class="px-3 py-3 text-xs">${esc(p.culoare || "—")}</td>
     <td class="px-3 py-3 text-xs font-mono">${esc(p.vin || "—")}</td>
-    ${showSelectie ? `<td class="px-3 py-3"><input type="checkbox" class="dc-row-check w-4 h-4" data-id="${p.id}"></td>` : ""}
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_intrare)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.alte_costuri)}</td>
     <td class="px-3 py-3 text-xs">${fmtNum(p.pret_vanzare)}</td>
