@@ -13,6 +13,91 @@
       href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
+    <style id="ep-styles">
+      /* Depozit central: ID produs centrat + badge-uri pe un singur rand */
+      .ep-badges {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: nowrap;
+        gap: 4px;
+      }
+      .ep-badges:empty {
+        display: none;
+      }
+      /* Modal "Editeaza produsul" */
+      .ep-modal {
+        max-width: 720px;
+        max-height: calc(100dvh - 24px);
+        overflow-y: auto;
+      }
+      .ep-modal form {
+        margin-top: 6px;
+      }
+      .ep-grid4 {
+        display: grid;
+        grid-template-columns: 1.3fr 1fr 1fr 1fr;
+        gap: 8px;
+      }
+      .ep-grid3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 8px;
+      }
+      .ep-grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 16px;
+        align-items: start;
+      }
+      .ep-grid2:empty {
+        display: none;
+      }
+      .ep-grid2 .justify-between {
+        flex-wrap: wrap;
+        row-gap: 2px;
+      }
+      .ep-modal .pret-card {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        column-gap: 16px;
+      }
+      .ep-actions {
+        display: flex;
+        gap: 8px;
+        padding-top: 4px;
+      }
+      .ep-actions > button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 8px 6px;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+        border-radius: 0.5rem;
+        text-align: center;
+        white-space: nowrap;
+      }
+      .ep-actions > .ep-btn-del {
+        background: #fef2f2;
+        color: #dc2626;
+        border: 1px solid #fecaca;
+        font-weight: 600;
+      }
+      .ep-actions > .ep-btn-del:hover {
+        background: #fee2e2;
+      }
+      @media (max-width: 640px) {
+        .ep-grid4,
+        .ep-grid3,
+        .ep-grid2,
+        .ep-modal .pret-card {
+          grid-template-columns: 1fr 1fr;
+        }
+        .ep-actions {
+          flex-wrap: wrap;
+        }
+      }
+    </style>
   </head>
   <body class="min-h-screen">
     <script>
@@ -320,6 +405,7 @@
           asm_operator: "Asamblare",
           asm_remediere: "Remediere",
           asm_ctc: "CTC",
+          asm_ambalare: "Ambalare",
           asm_admin: "Admin asamblare",
         };
         return map[role] || "Fără rol";
@@ -2091,6 +2177,7 @@
         <option value="asm_operator" ${p.role === "asm_operator" ? "selected" : ""}>Asamblare</option>
         <option value="asm_remediere" ${p.role === "asm_remediere" ? "selected" : ""}>Remediere</option>
         <option value="asm_ctc" ${p.role === "asm_ctc" ? "selected" : ""}>CTC</option>
+        <option value="asm_ambalare" ${p.role === "asm_ambalare" ? "selected" : ""}>Ambalare</option>
         <option value="asm_admin" ${p.role === "asm_admin" ? "selected" : ""}>Admin asamblare</option>
       </select>
     </td>
@@ -2526,7 +2613,7 @@
         p = p || {};
         const discountTip = p.discount_tip || "suma";
         return `
-        <div class="rounded-lg border p-2" style="border-color:var(--line)">
+        <div class="rounded-lg border p-2 pret-card" style="border-color:var(--line)">
           ${pretRandHtml(
             "Preț intrare",
             "",
@@ -2950,6 +3037,20 @@
         ctc_avizat: ["Avizat CTC", "bg-emerald-100 text-emerald-700"],
       };
 
+      // ---- Ambalare: stare per produs (completată de fetchAsmStadiuMap) ----
+      const AMB_STARE = new Map();
+      const AMB_LABEL = {
+        marcat: ["De ambalat", "background:#ede9fe;color:#6d28d9"],
+        in_ambalare: ["În ambalare", "background:#ffedd5;color:#c2410c"],
+        ambalat: ["Ambalat", "background:#ccfbf1;color:#0f766e"],
+      };
+      function ambBadgeHtml(stare) {
+        const l = AMB_LABEL[stare];
+        return l
+          ? ` <span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold" style="${l[1]}">${esc(l[0])}</span>`
+          : "";
+      }
+
       async function fetchAsmStadiuMap(produsIds) {
         const map = new Map();
         if (
@@ -2959,10 +3060,14 @@
           return map;
         const { data, error } = await supa
           .from("v_produse_stadiu")
-          .select("produs_id, stadiu")
+          .select("produs_id, stadiu, ambalare_stare")
           .in("produs_id", produsIds);
         if (error || !data) return map;
-        data.forEach((r) => map.set(r.produs_id, r.stadiu));
+        data.forEach((r) => {
+          map.set(r.produs_id, r.stadiu);
+          if (r.ambalare_stare) AMB_STARE.set(r.produs_id, r.ambalare_stare);
+          else AMB_STARE.delete(r.produs_id);
+        });
         return map;
       }
 
@@ -2975,7 +3080,7 @@
           "bg-slate-100 text-slate-600",
         ];
         const poateFiAsignat = stadiu === "ctc_avizat";
-        return `<span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}" title="${poateFiAsignat ? "Produs avizat CTC, poate fi asignat unei comenzi" : "Produs în fluxul de asamblare, nu poate fi asignat unei comenzi până nu primește aviz CTC"}">${esc(label)}</span>`;
+        return `<span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}" title="${poateFiAsignat ? "Produs avizat CTC, poate fi asignat unei comenzi" : "Produs în fluxul de asamblare, nu poate fi asignat unei comenzi până nu primește aviz CTC"}">${esc(label)}</span>${ambBadgeHtml(AMB_STARE.get(produsId))}`;
       }
 
       // ---- „Trimite spre CTC" din modalele „Editează produsul" / „Editare în lot" ----
@@ -3043,13 +3148,53 @@
         return `<span class="inline-block whitespace-nowrap px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${cls}">${esc(label)}</span>`;
       }
 
-      async function trimiteProdusSpreCtc(vin) {
-        const { data, error } = await supa.rpc("ctc_solicita", {
-          p_vin: vin,
-          p_comanda_id: null,
-        });
+      async function trimiteProdusSpreCtc(vin, cuAmbalare = false) {
+        const { data, error } = await supa.rpc(
+          cuAmbalare ? "ctc_solicita_cu_ambalare" : "ctc_solicita",
+          {
+            p_vin: vin,
+            p_comanda_id: null,
+          },
+        );
         if (error) return { ok: false, mesaj: error.message };
         return { ok: true, deja: !!(data && data.rezultat === "deja") };
+      }
+
+      async function trimiteProdusSpreAmbalare(produsId) {
+        const { error } = await supa.rpc("ambalare_marcheaza", {
+          p_produs_id: produsId,
+        });
+        return error ? { ok: false, mesaj: error.message } : { ok: true };
+      }
+
+      // Eligibilitate „De ambalat": produs din stocul central, nemarcat încă.
+      // Cu rând în fluxul asm: direct (Avizat CTC) sau marcat (restul);
+      // fără rând asm: doar împreună cu „Trimite spre CTC".
+      function evalueazaAmbalare(p, stadiu, ctcBifat) {
+        const inStoc = !p.magazin_id && !p.vandut && !p.vanzare_directa;
+        const stare = AMB_STARE.get(p.id) || null;
+        if (!inStoc)
+          return {
+            eligibil: false,
+            motiv: "Produsul nu este în stocul central.",
+          };
+        if (stare)
+          return {
+            eligibil: false,
+            motiv:
+              stare === "ambalat"
+                ? "Produsul a fost deja ambalat."
+                : "Produsul este deja marcat pentru ambalare.",
+          };
+        if (stadiu === "ctc_avizat")
+          return { eligibil: true, direct: true, motiv: "" };
+        if (stadiu || ctcBifat)
+          return { eligibil: true, direct: false, motiv: "" };
+        return {
+          eligibil: false,
+          motiv:
+            "Fără istoric în Asamblare/CTC, „De ambalat” se poate bifa doar împreună cu „Trimite spre CTC”.",
+        };
       }
 
       // ---- Avertizare la legarea produselor care nu sunt "Avizat CTC" ----
@@ -3308,6 +3453,16 @@
           </div>
           <div id="pu-ctc-stari" class="flex items-center flex-wrap gap-1.5 text-xs text-slate-500 mt-1"></div>
         </div>
+        <div>
+          <div class="flex items-center justify-between gap-3">
+            <label id="pu-amb-label" class="flex items-center gap-2 text-sm font-medium text-slate-700" style="opacity:.5;cursor:not-allowed">
+              <input type="checkbox" id="pu-amb" class="rounded border-slate-300" disabled>
+              De ambalat / Trimite spre ambalare
+            </label>
+            <span id="pu-amb-count" class="text-xs text-slate-500">se încarcă...</span>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-1">Produsele Avizat CTC ajung imediat la ambalator; celelalte devin vizibile după avizul CTC.</p>
+        </div>
         <p class="text-xs text-slate-400">Se modifică doar câmpurile pe care le completezi. Fără Preț intrare, prețurile existente rămân neschimbate (se aplică doar Categoria, Marca, C.I.V. și Prețul recomandat). Cu Preț intrare, toate câmpurile de preț sunt rescrise.</p>
         <div class="flex justify-center pt-1">
           <button type="submit" class="btn-primary rounded-lg py-2 px-8 text-sm">Aplică la ${n} produs${n === 1 ? "" : "e"}</button>
@@ -3382,6 +3537,30 @@
         const puCtcCount = document.getElementById("pu-ctc-count");
         const puCtcStari = document.getElementById("pu-ctc-stari");
         let produseEligibileCtc = [];
+        let produseEligibileAmb = [];
+        let stadiiBatch = null;
+        const puAmb = document.getElementById("pu-amb");
+        function actualizeazaAmbBatch() {
+          if (!puAmb || !stadiiBatch) return;
+          const ctcB = !!(puCtc.checked && !puCtc.disabled);
+          const idsCtc = new Set(produseEligibileCtc.map((x) => String(x.id)));
+          produseEligibileAmb = produseSelectate.filter(
+            (x) =>
+              evalueazaAmbalare(
+                x,
+                stadiiBatch.get(x.id) || null,
+                ctcB && idsCtc.has(String(x.id)),
+              ).eligibil,
+          );
+          document.getElementById("pu-amb-count").textContent =
+            `${produseEligibileAmb.length} din ${n} produse eligibile`;
+          puAmb.disabled = !produseEligibileAmb.length;
+          if (puAmb.disabled) puAmb.checked = false;
+          const lbl = document.getElementById("pu-amb-label");
+          lbl.style.opacity = produseEligibileAmb.length ? "" : ".5";
+          lbl.style.cursor = produseEligibileAmb.length ? "" : "not-allowed";
+        }
+        puCtc.addEventListener("change", actualizeazaAmbBatch);
         incarcaStareCtcProduse(produseSelectate).then((st) => {
           if (!document.body.contains(overlay)) return;
           const evaluari = produseSelectate.map((p) => ({
@@ -3413,6 +3592,8 @@
           puCtcLabel.style.cursor = produseEligibileCtc.length
             ? ""
             : "not-allowed";
+          stadiiBatch = st.stadii;
+          actualizeazaAmbBatch();
         });
 
         document
@@ -3493,11 +3674,20 @@
               !puCtc.disabled &&
               produseEligibileCtc.length
             );
+            const trimiteAmb = !!(
+              puAmb &&
+              puAmb.checked &&
+              !puAmb.disabled &&
+              produseEligibileAmb.length
+            );
+            const ambIds = new Set(
+              produseEligibileAmb.map((x) => String(x.id)),
+            );
             const areModificari = Object.keys(payload).length > 1;
-            if (!areModificari && !trimiteCtc) {
+            if (!areModificari && !trimiteCtc && !trimiteAmb) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent =
-                "Completează cel puțin un câmp (categorie, marcă, C.I.V., preț recomandat, prețul de intrare) sau bifează „Trimite spre CTC”.";
+                "Completează cel puțin un câmp (categorie, marcă, C.I.V., preț recomandat, prețul de intrare) sau bifează „Trimite spre CTC” / „De ambalat”.";
               return;
             }
 
@@ -3537,6 +3727,8 @@
             let ctcEsuat = 0;
             let ctcEligibile = 0;
             const ctcTrimise = [];
+            const ctcTinta = new Set();
+            const ctcCuAmb = new Set();
             if (trimiteCtc) {
               const baza = areModificari ? reusite : produseSelectate;
               const ids = new Set(produseEligibileCtc.map((p) => String(p.id)));
@@ -3545,10 +3737,13 @@
               msg.textContent = `Se trimit produsele spre CTC (0/${tinte.length})...`;
               for (const p of tinte) {
                 const vinCtc = ctcVinKeyGlobal(p.vin);
+                const cuAmb = trimiteAmb && ambIds.has(String(p.id));
+                ctcTinta.add(String(p.id));
                 const r = vinCtc
-                  ? await trimiteProdusSpreCtc(p.vin)
+                  ? await trimiteProdusSpreCtc(p.vin, cuAmb)
                   : { ok: false, mesaj: "VIN lipsă" };
                 if (r.ok) {
+                  if (cuAmb) ctcCuAmb.add(String(p.id));
                   ctcOk++;
                   if (!r.deja) ctcTrimise.push(p);
                 } else {
@@ -3556,6 +3751,38 @@
                   eroareText = eroareText || r.mesaj;
                 }
                 msg.textContent = `Se trimit produsele spre CTC (${ctcOk + ctcEsuat}/${tinte.length})...`;
+              }
+            }
+
+            // „De ambalat": prin CTC (deja făcut) sau direct pe produsele cu rând asm.
+            let ambOk = 0;
+            let ambEsuat = 0;
+            let ambTinte = 0;
+            const ambTrimise = [];
+            if (trimiteAmb) {
+              const baza = areModificari ? reusite : produseSelectate;
+              const tinte = baza.filter((p) => ambIds.has(String(p.id)));
+              ambTinte = tinte.length;
+              for (const p of tinte) {
+                const k = String(p.id);
+                if (ctcCuAmb.has(k)) {
+                  ambOk++;
+                  ambTrimise.push(p);
+                  continue;
+                }
+                if (ctcTinta.has(k)) {
+                  ambEsuat++;
+                  continue;
+                }
+                const r = await trimiteProdusSpreAmbalare(p.id);
+                if (r.ok) {
+                  ambOk++;
+                  ambTrimise.push(p);
+                } else {
+                  ambEsuat++;
+                  eroareText = eroareText || r.mesaj;
+                }
+                msg.textContent = `Se marchează pentru ambalare (${ambOk + ambEsuat}/${tinte.length})...`;
               }
             }
 
@@ -3596,9 +3823,16 @@
                 detalii: `ID produs: ${p.id_produs} · VIN ${p.vin} (Editare în lot)`,
               }),
             );
+            ambTrimise.forEach((p) =>
+              randuriLog.push({
+                entitateId: p.id,
+                actiune: "Marcat pentru ambalare",
+                detalii: `ID produs: ${p.id_produs} · VIN ${p.vin || "—"} (Editare în lot)`,
+              }),
+            );
             await inregistreazaLogLot(randuriLog);
 
-            if (!reusite.length && !ctcOk) {
+            if (!reusite.length && !ctcOk && !ambOk) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent =
                 (areModificari
@@ -3619,23 +3853,34 @@
             const ctcText = trimiteCtc
               ? ` Trimise spre CTC: ${ctcOk} din ${ctcEligibile} eligibile.`
               : "";
+            const ambText = trimiteAmb
+              ? ` Marcate pentru ambalare: ${ambOk} din ${ambTinte}.`
+              : "";
             const esecuri =
-              (areModificari && reusite.length < n) || ctcEsuat > 0;
+              (areModificari && reusite.length < n) ||
+              ctcEsuat > 0 ||
+              ambEsuat > 0;
             if (areModificari) {
               toast(
                 reusite.length < n
                   ? `Modificările au fost aplicate la ${reusite.length} din ${n} produse.` +
                       ctcText +
+                      ambText +
                       (eroareText ? ` Eroare: ${eroareText}` : "")
                   : `Modificările au fost aplicate la ${n} produs${n === 1 ? "" : "e"}.` +
                       ctcText +
-                      (ctcEsuat && eroareText ? ` Eroare: ${eroareText}` : ""),
+                      ambText +
+                      ((ctcEsuat || ambEsuat) && eroareText
+                        ? ` Eroare: ${eroareText}`
+                        : ""),
                 esecuri,
               );
             } else {
               toast(
-                ctcText.trim() +
-                  (ctcEsuat && eroareText ? ` Eroare: ${eroareText}` : ""),
+                (ctcText + ambText).trim() +
+                  ((ctcEsuat || ambEsuat) && eroareText
+                    ? ` Eroare: ${eroareText}`
+                    : ""),
                 esecuri,
               );
             }
@@ -5009,14 +5254,12 @@
     <td class="px-3 py-3 text-slate-400">${nr}</td>
     ${showSelectie ? `<td class="px-3 py-3"><input type="checkbox" class="dc-row-check w-4 h-4" data-id="${p.id}"></td>` : ""}
     <td class="px-3 py-3 font-mono text-xs">
-      <div class="flex flex-col items-start gap-1">
-        <div class="flex items-center gap-1">
+      <div class="flex flex-col items-center gap-1">
+        <div class="flex items-center justify-center gap-1">
           <button type="button" data-edit-produs="${p.id}" class="produs-id-link underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide și editează datele produsului">${esc(p.id_produs)}</button>
           ${bulinaNotificarePretHtml(p.id, notificariActive)}
         </div>
-        ${asmStadiuBadgeHtml(p.id, asmStadiuMap)}
-        ${isReserved ? `<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700" title="Legat de o comandă, în așteptare de trimitere">Rezervat</span>` : ""}
-        ${comandaInfo ? `<button type="button" class="comanda-produs-link inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide comanda inițială">${esc(comandaInfo.numar_comanda)}</button>` : ""}
+        <div class="ep-badges">${asmStadiuBadgeHtml(p.id, asmStadiuMap)}${isReserved ? `<span class="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700" title="Legat de o comandă, în așteptare de trimitere">Rezervat</span>` : ""}${comandaInfo ? `<button type="button" class="comanda-produs-link inline-block px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 underline decoration-dotted hover:text-[var(--teal-dark)]" title="Deschide comanda inițială">${esc(comandaInfo.numar_comanda)}</button>` : ""}</div>
       </div>
     </td>
     ${showAgent ? `<td class="px-3 py-3 text-xs">${esc(p.agent || "—")}</td>` : ""}
@@ -5433,6 +5676,19 @@
         const poateTrimiteCtc =
           currentProfile.role === "admin" ||
           currentProfile.role === "superadmin";
+        const ambFieldHtml = poateTrimiteCtc
+          ? `
+        <div>
+          <div class="flex items-center justify-between gap-3">
+            <label id="edit-amb-label" class="flex items-center gap-2 text-sm font-medium text-slate-700" style="opacity:.5;cursor:not-allowed">
+              <input type="checkbox" id="edit-amb" class="rounded border-slate-300" disabled>
+              <span id="edit-amb-text">De ambalat</span>
+            </label>
+            <div class="flex items-center gap-1.5 text-xs text-slate-500">Ambalare: <span id="edit-amb-stare" class="text-slate-400">se încarcă...</span></div>
+          </div>
+          <p id="edit-amb-motiv" class="text-[11px] text-slate-400 mt-1" style="display:none"></p>
+        </div>`
+          : "";
         const ctcFieldHtml = poateTrimiteCtc
           ? `
         <div>
@@ -5473,16 +5729,14 @@
             </div>
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
+        <div class="ep-grid4">
           <div>${categorieFieldHtml}</div>
           <div>${marcaFieldHtml}</div>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
           <div>${modelFieldHtml}</div>
           <div>${produsFieldLabel("Culoare")}<input type="text" id="edit-culoare" class="${produsInputBase()}" value="${esc(p.culoare || "")}"></div>
         </div>
         ${randurilePretProdusHtml("edit", p)}
-        <div>${civFieldHtml}</div>${ctcFieldHtml}`;
+        <div>${civFieldHtml}</div><div class="ep-grid2">${ctcFieldHtml}${ambFieldHtml}</div>`;
         } else {
           camputiFieldsHtml = `
         <div class="grid grid-cols-2 gap-2">
@@ -5495,19 +5749,17 @@
           </div>
           <div>${categorieFieldHtml}</div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
+        <div class="ep-grid3">
           <div>${marcaFieldHtml}</div>
           <div>${modelFieldHtml}</div>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
           <div>${produsFieldLabel("Culoare")}<input type="text" id="edit-culoare" class="${produsInputBase()}" value="${esc(p.culoare || "")}"></div>
         </div>
         ${randurilePretProdusHtml("edit", p)}
-        <div>${civFieldHtml}</div>${ctcFieldHtml}`;
+        <div>${civFieldHtml}</div><div class="ep-grid2">${ctcFieldHtml}${ambFieldHtml}</div>`;
         }
 
         overlay.innerHTML = `
-    <div class="bg-white rounded-2xl shadow-xl p-5 w-full max-w-lg fade-in my-auto">
+    <div class="bg-white rounded-2xl shadow-xl p-5 w-full ep-modal fade-in my-auto">
       <div class="flex items-start justify-between mb-1">
         <div class="flex items-center gap-2">
           <h2 class="text-base font-bold">Editează produsul</h2>
@@ -5515,7 +5767,6 @@
         </div>
         <button type="button" id="edit-produs-close" class="text-slate-400 hover:text-slate-600 text-xl leading-none">✕</button>
       </div>
-      <p class="text-sm text-slate-500 mb-3">Modifică datele produsului.</p>
       <form id="form-edit-produs" class="space-y-2.5">
         <div class="grid grid-cols-2 gap-2">
           <div>
@@ -5525,18 +5776,18 @@
           <div>${produsFieldLabel("VIN")}<input type="text" id="edit-vin" class="${produsInputBase()} font-mono" value="${esc(p.vin || "")}"></div>
         </div>
         ${camputiFieldsHtml}
-        ${
-          poateVanzareDirecta &&
-          (currentProfile.role === "admin" ||
-            currentProfile.role === "superadmin")
-            ? `<button type="button" id="edit-vanzare-directa-btn" class="w-full rounded-lg py-2 text-sm font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200">Vânzare directă</button>`
-            : ""
-        }
-        <div class="flex items-center justify-between gap-3 pt-1">
-          <button type="submit" class="btn-primary rounded-lg py-2 px-6 text-sm">Salvează modificările</button>
+        <div class="ep-actions">
+          <button type="submit" class="btn-primary">Salvează modificările</button>
+          ${
+            poateVanzareDirecta &&
+            (currentProfile.role === "admin" ||
+              currentProfile.role === "superadmin")
+              ? `<button type="button" id="edit-vanzare-directa-btn" class="font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200">Vânzare directă</button>`
+              : ""
+          }
           ${
             showMagazinSiSterge
-              ? `<button type="button" id="edit-produs-delete" class="text-xs font-medium text-red-500 hover:text-red-700">Șterge produsul</button>`
+              ? `<button type="button" id="edit-produs-delete" class="ep-btn-del">Șterge produsul</button>`
               : ""
           }
         </div>
@@ -5719,10 +5970,41 @@
             if (!document.body.contains(overlay)) return;
             ctcStareDate = st;
             actualizeazaCtcEdit();
+            actualizeazaAmbEdit();
           });
           const vinEl = document.getElementById("edit-vin");
           if (vinEl) vinEl.addEventListener("input", actualizeazaCtcEdit);
         }
+
+        // --- „De ambalat" / „Trimite spre ambalare" ---
+        const ambCheckEl = document.getElementById("edit-amb");
+        let ambEvCurent = null;
+        function actualizeazaAmbEdit() {
+          if (!ambCheckEl || !ctcStareDate) return;
+          const ev = evalueazaAmbalare(
+            p,
+            ctcStareDate.stadii.get(p.id) || null,
+            !!(ctcCheckEl && ctcCheckEl.checked && !ctcCheckEl.disabled),
+          );
+          ambEvCurent = ev;
+          const stare = AMB_STARE.get(p.id);
+          document.getElementById("edit-amb-stare").innerHTML = stare
+            ? ambBadgeHtml(stare)
+            : '<span class="text-slate-400">—</span>';
+          ambCheckEl.disabled = !ev.eligibil;
+          if (!ev.eligibil) ambCheckEl.checked = false;
+          document.getElementById("edit-amb-text").textContent = ev.direct
+            ? "Trimite spre ambalare"
+            : "De ambalat (după avizul CTC)";
+          const lbl = document.getElementById("edit-amb-label");
+          lbl.style.opacity = ev.eligibil ? "" : ".5";
+          lbl.style.cursor = ev.eligibil ? "" : "not-allowed";
+          const mt = document.getElementById("edit-amb-motiv");
+          mt.textContent = ev.motiv;
+          mt.style.display = ev.motiv ? "" : "none";
+        }
+        if (ctcCheckEl)
+          ctcCheckEl.addEventListener("change", actualizeazaAmbEdit);
 
         document
           .getElementById("form-edit-produs")
@@ -5740,9 +6022,16 @@
               !ctcCheckEl.disabled &&
               ctcEligibilCurent
             );
+            const trimiteAmb = !!(
+              ambCheckEl &&
+              ambCheckEl.checked &&
+              !ambCheckEl.disabled &&
+              ambEvCurent &&
+              ambEvCurent.eligibil
+            );
             // Fără categorie, salvarea rămâne blocată, cu excepția cazului în care
             // se trimite produsul spre CTC (atunci categoria rămâne neschimbată).
-            if (!categorieVal && !trimiteCtc) {
+            if (!categorieVal && !trimiteCtc && !trimiteAmb) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent = "Alege sau specifică o categorie.";
               return;
@@ -5920,7 +6209,7 @@
             if (trimiteCtc) {
               const vinCtc = payload.vin || p.vin;
               const r = vinCtc
-                ? await trimiteProdusSpreCtc(vinCtc)
+                ? await trimiteProdusSpreCtc(vinCtc, trimiteAmb)
                 : { ok: false, mesaj: "Produsul nu are VIN." };
               if (r.ok) {
                 ctcMesaj = r.deja
@@ -5939,10 +6228,40 @@
               }
             }
 
+            let ambMesaj = "";
+            let ambEroare = false;
+            if (trimiteAmb && !trimiteCtc) {
+              const r = await trimiteProdusSpreAmbalare(p.id);
+              if (r.ok) {
+                ambMesaj = ambEvCurent.direct
+                  ? " Produsul a fost trimis spre ambalare."
+                  : " Produsul a fost marcat „De ambalat”.";
+                inregistreazaLog(
+                  "produs",
+                  p.id,
+                  ambEvCurent.direct
+                    ? "Trimis spre ambalare"
+                    : "Marcat „De ambalat”",
+                  `ID produs: ${p.id_produs}`,
+                );
+              } else {
+                ambEroare = true;
+                ambMesaj = ` Trimiterea spre ambalare a eșuat: ${r.mesaj}`;
+              }
+            } else if (trimiteAmb && trimiteCtc && !ctcEroare) {
+              ambMesaj = " Va fi ambalat după avizul CTC.";
+              inregistreazaLog(
+                "produs",
+                p.id,
+                "Marcat „De ambalat” (cu trimitere spre CTC)",
+                `ID produs: ${p.id_produs}`,
+              );
+            }
+
             overlay.remove();
             toast(
-              "Produsul a fost actualizat cu succes." + ctcMesaj,
-              ctcEroare,
+              "Produsul a fost actualizat cu succes." + ctcMesaj + ambMesaj,
+              ctcEroare || ambEroare,
             );
             onSaved();
           });
