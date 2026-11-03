@@ -708,7 +708,7 @@
         return `
   <form id="form-signup" class="space-y-4">
     <div>${fieldLabel("Email")}<input type="email" id="signup-email" required class="${inputBase()}" placeholder="nume@exemplu.ro"></div>
-    <div>${fieldLabel("Parolă")}<input type="password" id="signup-pass" required minlength="6" class="${inputBase()}" placeholder="Minim 6 caractere"></div>
+    <div>${fieldLabel("Parolă")}<input type="password" id="signup-pass" required minlength="6" class="${inputBase()}" placeholder="Min. 8 car.: literă mică, literă mare, cifră și un simbol."></div>
     <div>${fieldLabel("Confirmă parola")}<input type="password" id="signup-pass2" required minlength="6" class="${inputBase()}"></div>
     <button type="submit" class="w-full btn-primary rounded-lg py-2.5 text-sm">Creează cont</button>
     <p id="signup-msg" class="text-sm text-center"></p>
@@ -791,7 +791,7 @@
     <div class="w-full max-w-md">
       <div class="bg-white rounded-2xl shadow-xl p-6 fade-in">
         <h2 class="text-lg font-bold mb-1">Modificare parolă</h2>
-        <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău.</p>
+        <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău. Minim 8 caractere: cel puțin o literă mică, o literă mare, o cifră și un simbol (de exemplu !, @, #, $).</p>
         <form id="form-reset" class="space-y-4">
           <div>${fieldLabel("Parolă nouă")}<input type="password" id="reset-pass" required minlength="6" class="${inputBase()}"></div>
           <div>${fieldLabel("Confirmă parola nouă")}<input type="password" id="reset-pass2" required minlength="6" class="${inputBase()}"></div>
@@ -1894,7 +1894,7 @@
         overlay.innerHTML = `
     <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm fade-in">
       <h2 class="text-lg font-bold mb-1">Schimbă parola</h2>
-      <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău.</p>
+      <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău. Minim 8 caractere: cel puțin o literă mică, o literă mare, o cifră și un simbol (de exemplu !, @, #, $).</p>
       <form id="form-change-pass" class="space-y-4">
         <div>${fieldLabel("Parolă nouă")}<input type="password" id="change-pass-1" required minlength="6" class="${inputBase()}"></div>
         <div>${fieldLabel("Confirmă parola nouă")}<input type="password" id="change-pass-2" required minlength="6" class="${inputBase()}"></div>
