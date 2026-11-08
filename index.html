@@ -658,6 +658,27 @@
         if (mode === "forgot") bindForgotForm();
       }
 
+      // Cerinte parola (aceleasi ca in Supabase): minim 8 caractere, cel putin
+      // o litera mare, o litera mica, o cifra si un simbol.
+      const PAROLA_CERINTE_TXT =
+        "Parola trebuie să aibă minim 8 caractere și să conțină cel puțin: o literă mare, o literă mică, o cifră și un simbol (ex. ! @ # $ % ?).";
+      function parolaCerinteHtml() {
+        return `<p class="text-xs text-slate-500">${PAROLA_CERINTE_TXT}</p>`;
+      }
+      function valideazaParola(p) {
+        const lipsuri = [];
+        if (p.length < 8) lipsuri.push("minim 8 caractere");
+        if (!/[A-Z]/.test(p)) lipsuri.push("o literă mare");
+        if (!/[a-z]/.test(p)) lipsuri.push("o literă mică");
+        if (!/[0-9]/.test(p)) lipsuri.push("o cifră");
+        if (!/[^A-Za-z0-9]/.test(p)) lipsuri.push("un simbol");
+        return lipsuri.length
+          ? "Parola nu respectă cerințele. Lipsește: " +
+              lipsuri.join(", ") +
+              "."
+          : "";
+      }
+
       function fieldLabel(txt) {
         return `<label class="block text-sm font-medium text-slate-700 mb-1">${txt}</label>`;
       }
@@ -708,8 +729,9 @@
         return `
   <form id="form-signup" class="space-y-4">
     <div>${fieldLabel("Email")}<input type="email" id="signup-email" required class="${inputBase()}" placeholder="nume@exemplu.ro"></div>
-    <div>${fieldLabel("Parolă")}<input type="password" id="signup-pass" required minlength="6" class="${inputBase()}" placeholder="Minim 6 caractere"></div>
-    <div>${fieldLabel("Confirmă parola")}<input type="password" id="signup-pass2" required minlength="6" class="${inputBase()}"></div>
+    <div>${fieldLabel("Parolă")}<input type="password" id="signup-pass" required minlength="8" class="${inputBase()}" placeholder="Minim 8 caractere"></div>
+    <div>${fieldLabel("Confirmă parola")}<input type="password" id="signup-pass2" required minlength="8" class="${inputBase()}"></div>
+    ${parolaCerinteHtml()}
     <button type="submit" class="w-full btn-primary rounded-lg py-2.5 text-sm">Creează cont</button>
     <p id="signup-msg" class="text-sm text-center"></p>
     <p class="text-xs text-slate-500 text-center">Contul nou nu are niciun rol alocat. Un administrator va activa contul și îi va atribui rolul.</p>
@@ -728,6 +750,12 @@
             if (pass !== pass2) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent = "Parolele nu coincid.";
+              return;
+            }
+            const eroareParola = valideazaParola(pass);
+            if (eroareParola) {
+              msg.className = "text-sm text-center text-red-600";
+              msg.textContent = eroareParola;
               return;
             }
             btn.disabled = true;
@@ -793,8 +821,9 @@
         <h2 class="text-lg font-bold mb-1">Modificare parolă</h2>
         <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău.</p>
         <form id="form-reset" class="space-y-4">
-          <div>${fieldLabel("Parolă nouă")}<input type="password" id="reset-pass" required minlength="6" class="${inputBase()}"></div>
-          <div>${fieldLabel("Confirmă parola nouă")}<input type="password" id="reset-pass2" required minlength="6" class="${inputBase()}"></div>
+          <div>${fieldLabel("Parolă nouă")}<input type="password" id="reset-pass" required minlength="8" class="${inputBase()}"></div>
+          <div>${fieldLabel("Confirmă parola nouă")}<input type="password" id="reset-pass2" required minlength="8" class="${inputBase()}"></div>
+          ${parolaCerinteHtml()}
           <button type="submit" class="w-full btn-primary rounded-lg py-2.5 text-sm">Salvează parola nouă</button>
           <p id="reset-msg" class="text-sm text-center"></p>
         </form>
@@ -812,6 +841,12 @@
             if (p1 !== p2) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent = "Parolele nu coincid.";
+              return;
+            }
+            const eroareParola = valideazaParola(p1);
+            if (eroareParola) {
+              msg.className = "text-sm text-center text-red-600";
+              msg.textContent = eroareParola;
               return;
             }
             const { error } = await supa.auth.updateUser({ password: p1 });
@@ -1896,8 +1931,9 @@
       <h2 class="text-lg font-bold mb-1">Schimbă parola</h2>
       <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău.</p>
       <form id="form-change-pass" class="space-y-4">
-        <div>${fieldLabel("Parolă nouă")}<input type="password" id="change-pass-1" required minlength="6" class="${inputBase()}"></div>
-        <div>${fieldLabel("Confirmă parola nouă")}<input type="password" id="change-pass-2" required minlength="6" class="${inputBase()}"></div>
+        <div>${fieldLabel("Parolă nouă")}<input type="password" id="change-pass-1" required minlength="8" class="${inputBase()}"></div>
+        <div>${fieldLabel("Confirmă parola nouă")}<input type="password" id="change-pass-2" required minlength="8" class="${inputBase()}"></div>
+        ${parolaCerinteHtml()}
         <div class="flex gap-2 pt-1">
           <button type="button" id="change-pass-cancel" class="flex-1 rounded-lg py-2.5 text-sm font-medium border" style="border-color:var(--line)">Anulează</button>
           <button type="submit" class="flex-1 btn-primary rounded-lg py-2.5 text-sm">Salvează</button>
@@ -1924,6 +1960,12 @@
             if (p1 !== p2) {
               msg.className = "text-sm text-center text-red-600";
               msg.textContent = "Parolele nu coincid.";
+              return;
+            }
+            const eroareParola = valideazaParola(p1);
+            if (eroareParola) {
+              msg.className = "text-sm text-center text-red-600";
+              msg.textContent = eroareParola;
               return;
             }
             const btn = e.target.querySelector('button[type="submit"]');
