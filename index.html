@@ -708,7 +708,7 @@
         return `
   <form id="form-signup" class="space-y-4">
     <div>${fieldLabel("Email")}<input type="email" id="signup-email" required class="${inputBase()}" placeholder="nume@exemplu.ro"></div>
-    <div>${fieldLabel("Parolă")}<input type="password" id="signup-pass" required minlength="6" class="${inputBase()}" placeholder="Min. 8 car.: literă mică, literă mare, cifră și un simbol."></div>
+    <div>${fieldLabel("Parolă")}<input type="password" id="signup-pass" required minlength="6" class="${inputBase()}" placeholder="Minim 6 caractere"></div>
     <div>${fieldLabel("Confirmă parola")}<input type="password" id="signup-pass2" required minlength="6" class="${inputBase()}"></div>
     <button type="submit" class="w-full btn-primary rounded-lg py-2.5 text-sm">Creează cont</button>
     <p id="signup-msg" class="text-sm text-center"></p>
@@ -791,7 +791,7 @@
     <div class="w-full max-w-md">
       <div class="bg-white rounded-2xl shadow-xl p-6 fade-in">
         <h2 class="text-lg font-bold mb-1">Modificare parolă</h2>
-        <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău. Minim 8 caractere: cel puțin o literă mică, o literă mare, o cifră și un simbol (de exemplu !, @, #, $).</p>
+        <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău.</p>
         <form id="form-reset" class="space-y-4">
           <div>${fieldLabel("Parolă nouă")}<input type="password" id="reset-pass" required minlength="6" class="${inputBase()}"></div>
           <div>${fieldLabel("Confirmă parola nouă")}<input type="password" id="reset-pass2" required minlength="6" class="${inputBase()}"></div>
@@ -1894,7 +1894,7 @@
         overlay.innerHTML = `
     <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm fade-in">
       <h2 class="text-lg font-bold mb-1">Schimbă parola</h2>
-      <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău. Minim 8 caractere: cel puțin o literă mică, o literă mare, o cifră și un simbol (de exemplu !, @, #, $).</p>
+      <p class="text-sm text-slate-500 mb-5">Alege o parolă nouă pentru contul tău.</p>
       <form id="form-change-pass" class="space-y-4">
         <div>${fieldLabel("Parolă nouă")}<input type="password" id="change-pass-1" required minlength="6" class="${inputBase()}"></div>
         <div>${fieldLabel("Confirmă parola nouă")}<input type="password" id="change-pass-2" required minlength="6" class="${inputBase()}"></div>
@@ -2270,6 +2270,30 @@
         return `${zz}${ll}${aa}${rand}`;
       }
 
+      // Variante pentru campurile de pret din formulare: 0 / null => camp gol
+      // (se vede doar placeholder-ul). Camp gol = valoare 0 in calcule.
+      function fmtNumGol(n) {
+        if (n === null || n === undefined || n === "") return "";
+        const x = Number(n);
+        if (isNaN(x) || Math.abs(x) < 0.005) return "";
+        return x.toFixed(2);
+      }
+      function valGol(n) {
+        if (n === null || n === undefined || n === "") return "";
+        const x = Number(n);
+        if (isNaN(x) || x === 0) return "";
+        return String(n);
+      }
+      // La salvare: camp gol ramane 0 daca valoarea originala era 0 (nu se schimba datele existente)
+      function golSauZeroOriginal(orig) {
+        return orig !== null &&
+          orig !== undefined &&
+          orig !== "" &&
+          Number(orig) === 0
+          ? 0
+          : null;
+      }
+
       function fmtNum(n) {
         if (n === null || n === undefined || n === "") return "—";
         return Number(n).toFixed(2);
@@ -2518,34 +2542,70 @@
         discountInput,
         discountTipInput,
       }) {
-        function updateTotalTva() {
+        // Directia de calcul este data de ultima editare:
+        //   "adaos" (implicit) = logica clasica: adaos -> pret fara TVA -> pret cu TVA
+        //   "tva"              = logica inversa: Pret cu TVA (fix) -> pret fara TVA + adaos (% si suma)
+        let mod = "adaos";
+
+        function discountCurent() {
+          return {
+            discount: discountInput ? parseFloat(discountInput.value) || 0 : 0,
+            tip: discountTipInput ? discountTipInput.value : "procent",
+          };
+        }
+
+        // Logica actuala (neschimbata): adaos introdus -> preturi
+        function calculAdaos() {
           const totalIntrareStr = totalIntrareInput.value.trim();
-          if (totalIntrareStr === "") {
+          if (totalIntrareStr === "" && adaosValoareInput.value.trim() === "") {
             totalInput.value = "";
             tvaInput.value = "";
             return;
           }
           const totalIntrare = parseFloat(totalIntrareStr) || 0;
           const adaosVal = parseFloat(adaosValoareInput.value) || 0;
-          const discount = discountInput
-            ? parseFloat(discountInput.value) || 0
-            : 0;
-
-          const discountTip = discountTipInput
-            ? discountTipInput.value
-            : "procent";
+          const { discount, tip: discountTip } = discountCurent();
           const totalBrut = totalIntrare + adaosVal;
           const total =
             discountTip === "suma"
               ? totalBrut - discount
               : totalBrut * (1 - discount / 100);
-          totalInput.value = fmtNum(total);
-          tvaInput.value = fmtNum(total * (1 + TVA_RATE));
+          totalInput.value = fmtNumGol(total);
+          tvaInput.value = fmtNumGol(total * (1 + TVA_RATE));
+        }
+
+        // Logica noua: Pret cu TVA introdus (ramane fix) -> pret fara TVA + adaos
+        function calculDinTva() {
+          const tvaStr = tvaInput.value.trim();
+          if (tvaStr === "") {
+            totalInput.value = "";
+            adaosValoareInput.value = "";
+            adaosProcentInput.value = "";
+            return;
+          }
+          const totalIntrare = parseFloat(totalIntrareInput.value) || 0;
+          const pretCuTva = parseFloat(tvaStr) || 0;
+          const { discount, tip: discountTip } = discountCurent();
+          const fara = pretCuTva / (1 + TVA_RATE);
+          let brut = fara;
+          if (discountTip === "suma") brut = fara + discount;
+          else if (discount < 100) brut = fara / (1 - discount / 100);
+          const adaosVal = brut - totalIntrare;
+          totalInput.value = fmtNumGol(fara);
+          adaosValoareInput.value = fmtNumGol(adaosVal);
+          adaosProcentInput.value = totalIntrare
+            ? ((adaosVal / totalIntrare) * 100).toFixed(2)
+            : "";
+        }
+
+        function updateTotalTva() {
+          if (mod === "tva") calculDinTva();
+          else calculAdaos();
         }
         function updateTotalIntrare() {
           const intrare = parseFloat(intrareInput.value) || 0;
           const alte = parseFloat(alteInput.value) || 0;
-          totalIntrareInput.value = (intrare + alte).toFixed(2);
+          totalIntrareInput.value = fmtNumGol(intrare + alte);
         }
         function syncProcentDinValoare() {
           const totalIntrare = parseFloat(totalIntrareInput.value) || 0;
@@ -2558,30 +2618,37 @@
           const valoare = parseFloat(valoareStr) || 0;
           adaosProcentInput.value = ((valoare / totalIntrare) * 100).toFixed(2);
         }
-        intrareInput.addEventListener("input", () => {
+        function laModificareCost() {
           updateTotalIntrare();
-          syncProcentDinValoare();
-          updateTotalTva();
-        });
-        alteInput.addEventListener("input", () => {
-          updateTotalIntrare();
-          syncProcentDinValoare();
-          updateTotalTva();
-        });
+          if (mod === "tva") {
+            calculDinTva(); // Pret cu TVA ramane fix, se recalculeaza adaosul
+          } else {
+            syncProcentDinValoare();
+            calculAdaos();
+          }
+        }
+        intrareInput.addEventListener("input", laModificareCost);
+        alteInput.addEventListener("input", laModificareCost);
         adaosProcentInput.addEventListener("input", () => {
+          mod = "adaos";
           const procentStr = adaosProcentInput.value.trim();
           if (procentStr !== "") {
             const totalIntrare = parseFloat(totalIntrareInput.value) || 0;
             const procent = parseFloat(procentStr) || 0;
-            adaosValoareInput.value = ((totalIntrare * procent) / 100).toFixed(
-              2,
-            );
+            adaosValoareInput.value = fmtNumGol((totalIntrare * procent) / 100);
+          } else {
+            adaosValoareInput.value = "";
           }
-          updateTotalTva();
+          calculAdaos();
         });
         adaosValoareInput.addEventListener("input", () => {
+          mod = "adaos";
           syncProcentDinValoare();
-          updateTotalTva();
+          calculAdaos();
+        });
+        tvaInput.addEventListener("input", () => {
+          mod = "tva";
+          calculDinTva();
         });
         if (discountInput)
           discountInput.addEventListener("input", updateTotalTva);
@@ -2605,7 +2672,7 @@
       function procentAdaosInitial(p) {
         const totalIntrare = Number(p && p.pret_vanzare);
         const valoare = Number(p && p.adaos);
-        if (!totalIntrare || isNaN(valoare)) return "";
+        if (!totalIntrare || isNaN(valoare) || valoare === 0) return "";
         return ((valoare / totalIntrare) * 100).toFixed(2);
       }
 
@@ -2617,40 +2684,40 @@
           ${pretRandHtml(
             "Preț intrare",
             "",
-            `<input type="number" step="0.01" id="${prefix}-pret-intrare" class="${produsInputBase()} price-field text-right" value="${p.pret_intrare ?? ""}">`,
+            `<input type="number" step="0.01" id="${prefix}-pret-intrare" class="${produsInputBase()} price-field text-right" placeholder="0" value="${valGol(p.pret_intrare)}">`,
           )}
           ${pretRandHtml(
             "Alte costuri",
             "",
-            `<input type="number" step="0.01" id="${prefix}-alte-costuri" class="${produsInputBase()} price-field text-right" value="${p.alte_costuri ?? ""}">`,
+            `<input type="number" step="0.01" id="${prefix}-alte-costuri" class="${produsInputBase()} price-field text-right" placeholder="0" value="${valGol(p.alte_costuri)}">`,
           )}
           ${pretRandHtml(
             "Total intrare",
             "",
-            `<input type="number" step="0.01" id="${prefix}-total-intrare" class="${produsInputBase()} calc-field font-semibold text-right" value="${p.pret_vanzare != null ? fmtNum(p.pret_vanzare) : ""}">`,
+            `<input type="number" step="0.01" id="${prefix}-total-intrare" class="${produsInputBase()} calc-field font-semibold text-right" placeholder="0.00" value="${fmtNumGol(p.pret_vanzare)}">`,
           )}
           ${pretRandHtml(
             "Adaos comercial",
             `<span class="flex items-center gap-1">
-                <input type="number" step="0.01" id="${prefix}-adaos-procent" class="${produsInputBase()} text-right" style="width:4.2rem" value="${procentAdaosInitial(p)}">
+                <input type="number" step="0.01" id="${prefix}-adaos-procent" class="${produsInputBase()} text-right" style="width:4.2rem" placeholder="0" value="${procentAdaosInitial(p)}">
                 <span class="text-[11px] text-slate-500">%</span>
               </span>`,
-            `<input type="number" step="0.01" id="${prefix}-adaos" class="${produsInputBase()} calc-field font-semibold text-right" value="${p.adaos != null ? fmtNum(p.adaos) : ""}">`,
+            `<input type="number" step="0.01" id="${prefix}-adaos" class="${produsInputBase()} calc-field font-semibold text-right" placeholder="0.00" value="${fmtNumGol(p.adaos)}">`,
           )}
           ${pretRandHtml(
             "Preț vânzare fără TVA",
             "",
-            `<input type="number" step="0.01" id="${prefix}-total" class="${produsInputBase()} calc-field font-semibold text-right" value="${p.total_fara_tva != null ? fmtNum(p.total_fara_tva) : ""}">`,
+            `<input type="number" step="0.01" id="${prefix}-total" class="${produsInputBase()} calc-field font-semibold text-right" placeholder="0.00" value="${fmtNumGol(p.total_fara_tva)}">`,
           )}
           ${pretRandHtml(
             "Preț cu TVA",
             "",
-            `<input type="number" step="0.01" id="${prefix}-tva" class="${produsInputBase()} calc-field font-semibold text-right" value="${p.pret_cu_tva != null ? fmtNum(p.pret_cu_tva) : ""}">`,
+            `<input type="number" step="0.01" id="${prefix}-tva" class="${produsInputBase()} calc-field font-semibold text-right" placeholder="0.00" value="${fmtNumGol(p.pret_cu_tva)}">`,
           )}
           ${pretRandHtml(
             "Preț Recomandat",
             "",
-            `<input type="number" step="0.01" id="${prefix}-pret-recomandat" class="${produsInputBase()} text-right" value="${p.pret_recomandat ?? ""}">`,
+            `<input type="number" step="0.01" id="${prefix}-pret-recomandat" class="${produsInputBase()} text-right" placeholder="0" value="${valGol(p.pret_recomandat)}">`,
           )}
           ${pretRandHtml(
             "Discount",
@@ -2658,7 +2725,7 @@
                 <button type="button" data-tip="suma" class="${prefix}-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border ${discountTip === "suma" ? "btn-primary" : ""}" style="border-color:var(--line)">Sumă</button>
                 <button type="button" data-tip="procent" class="${prefix}-discount-tip-btn rounded-md px-2 py-0.5 text-[11px] font-medium border ${discountTip === "procent" ? "btn-primary" : ""}" style="border-color:var(--line)">%</button>
               </span>`,
-            `<input type="number" step="0.01" min="0" id="${prefix}-discount" class="${produsInputBase()} text-right" value="${p.discount ?? ""}"><input type="hidden" id="${prefix}-discount-tip" value="${discountTip}">`,
+            `<input type="number" step="0.01" min="0" id="${prefix}-discount" class="${produsInputBase()} text-right" placeholder="0" value="${valGol(p.discount)}"><input type="hidden" id="${prefix}-discount-tip" value="${discountTip}">`,
           )}
         </div>`;
       }
@@ -6135,20 +6202,20 @@
             const alte = parseFloat(editAlte.value) || 0;
             const adaos = editAdaos.value.trim()
               ? parseFloat(editAdaos.value)
-              : null;
+              : golSauZeroOriginal(p.adaos);
             const total = editTotal.value.trim()
               ? parseFloat(editTotal.value)
-              : null;
+              : golSauZeroOriginal(p.total_fara_tva);
             const cuTva = editTva.value.trim()
               ? parseFloat(editTva.value)
-              : null;
+              : golSauZeroOriginal(p.pret_cu_tva);
             const pretRecomandat = document
               .getElementById("edit-pret-recomandat")
               .value.trim()
               ? parseFloat(
                   document.getElementById("edit-pret-recomandat").value,
                 )
-              : null;
+              : golSauZeroOriginal(p.pret_recomandat);
             const discountVal = editDiscount.value.trim()
               ? parseFloat(editDiscount.value)
               : 0;
