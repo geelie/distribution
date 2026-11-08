@@ -14420,6 +14420,7 @@
       let documentatieTipFiltru = "toate";
 
       const TIPURI_DOCUMENTATIE = {
+        oferte: "Oferte",
         garantii: "Garanții",
         manuale: "Manuale de utilizare",
       };
@@ -14518,6 +14519,7 @@
       <form id="form-documentatie-adauga" class="space-y-4">
         <div>${fieldLabel("Tip document")}
           <select id="documentatie-adauga-tip" required class="${inputBase()}">
+            <option value="oferte" selected>Oferte</option>
             <option value="garantii">Garanții</option>
             <option value="manuale">Manuale de utilizare</option>
           </select>
@@ -14682,6 +14684,7 @@
       <div class="flex flex-wrap items-center justify-between gap-2">
         <select id="documentatie-filtru-tip" class="border rounded-md px-2 py-1.5 text-sm" style="border-color:var(--line)">
           <option value="toate" ${documentatieTipFiltru === "toate" ? "selected" : ""}>Toate</option>
+          <option value="oferte" ${documentatieTipFiltru === "oferte" ? "selected" : ""}>Oferte</option>
           <option value="garantii" ${documentatieTipFiltru === "garantii" ? "selected" : ""}>Garanții</option>
           <option value="manuale" ${documentatieTipFiltru === "manuale" ? "selected" : ""}>Manuale de utilizare</option>
         </select>
