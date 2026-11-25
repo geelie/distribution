@@ -13000,7 +13000,11 @@
         const path = `${produsId}/${tip}_${Date.now()}.${extensie}`;
         const { error } = await supa.storage
           .from(BUCKET_VANZARI)
-          .upload(path, file, { upsert: true, contentType: file.type });
+          .upload(path, file, {
+            upsert: true,
+            contentType:
+              file.type || MIME_PE_EXTENSIE_VANZARE[extensie] || undefined,
+          });
         if (error) throw error;
         return path;
       }
@@ -13011,6 +13015,133 @@
           .createSignedUrl(path, 300);
         if (error) throw error;
         return data.signedUrl;
+      }
+
+      const EXT_DOCUMENTE_VANZARE = [
+        "pdf",
+        "jpg",
+        "jpeg",
+        "png",
+        "gif",
+        "webp",
+        "heic",
+        "heif",
+        "bmp",
+        "tif",
+        "tiff",
+        "doc",
+        "docx",
+      ];
+      const ACCEPT_DOCUMENTE_VANZARE = "application/pdf,image/*,.doc,.docx";
+      const MAX_MB_DOCUMENT_VANZARE = 20;
+      const MIME_PE_EXTENSIE_VANZARE = {
+        pdf: "application/pdf",
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        png: "image/png",
+        gif: "image/gif",
+        webp: "image/webp",
+        heic: "image/heic",
+        heif: "image/heif",
+        bmp: "image/bmp",
+        tif: "image/tiff",
+        tiff: "image/tiff",
+        doc: "application/msword",
+        docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      };
+
+      function validareFisierVanzare(file) {
+        const ext = (file.name.split(".").pop() || "").toLowerCase();
+        if (!EXT_DOCUMENTE_VANZARE.includes(ext)) {
+          return `Format neacceptat (${file.name}). Sunt permise: PDF, imagini și documente Word (.doc, .docx).`;
+        }
+        if (file.size > MAX_MB_DOCUMENT_VANZARE * 1024 * 1024) {
+          return `Fișierul ${file.name} depășește ${MAX_MB_DOCUMENT_VANZARE} MB.`;
+        }
+        return null;
+      }
+
+      function poateIncarcaDocumenteVanzare(p) {
+        const rol = currentProfile && currentProfile.role;
+        if (rol === "admin" || rol === "superadmin") return true;
+        return rol === "magazin" && p.magazin_id === currentUser.id;
+      }
+
+      function documentSlotHtml(p, coloana, tip, label, titlu) {
+        if (p[coloana]) return documentLinkHtml(p[coloana], label);
+        if (!poateIncarcaDocumenteVanzare(p)) {
+          return `<span class="text-slate-300">—</span>`;
+        }
+        return `<a href="#" data-upload-doc="1" data-produs-id="${esc(p.id)}" data-id-produs="${esc(p.id_produs)}" data-col="${coloana}" data-tip="${tip}" data-doc-label="${esc(label)}" title="${esc(titlu)}" class="text-amber-700 underline decoration-dotted cursor-pointer">↑ ${esc(label)}</a>`;
+      }
+
+      function bindIncarcareDocumenteVanzare(container) {
+        container.querySelectorAll("[data-upload-doc]").forEach((btn) => {
+          if (btn.dataset.bound) return;
+          btn.dataset.bound = "1";
+          btn.addEventListener("click", (e) => {
+            e.preventDefault();
+            if (btn.dataset.busy) return;
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = ACCEPT_DOCUMENTE_VANZARE;
+            input.addEventListener("change", async () => {
+              const file = input.files[0];
+              if (!file) return;
+              const eroareFisier = validareFisierVanzare(file);
+              if (eroareFisier) {
+                toast(eroareFisier, true);
+                return;
+              }
+              const produsId = btn.getAttribute("data-produs-id");
+              const idProdus = btn.getAttribute("data-id-produs");
+              const coloana = btn.getAttribute("data-col");
+              const tip = btn.getAttribute("data-tip");
+              const label = btn.getAttribute("data-doc-label");
+              const td = btn.parentElement;
+              btn.dataset.busy = "1";
+              btn.textContent = "Se încarcă...";
+              let path = null;
+              try {
+                path = await incarcaDocumentVanzare(produsId, file, tip);
+                const { data, error } = await supa
+                  .from("produse")
+                  .update({ [coloana]: path })
+                  .eq("id", produsId)
+                  .is(coloana, null)
+                  .select("id");
+                if (error) throw error;
+                if (!data || !data.length) {
+                  throw new Error(
+                    "Documentul există deja sau nu ai drepturi pentru acest produs.",
+                  );
+                }
+                inregistreazaLog(
+                  "produs",
+                  produsId,
+                  "Încărcare document vânzare",
+                  `ID produs: ${idProdus} · Document: ${label}`,
+                );
+                toast(`Documentul „${label}” a fost încărcat.`);
+                btn.outerHTML = documentLinkHtml(path, label);
+                bindDeschideDocumenteVanzare(td);
+              } catch (err) {
+                if (path) {
+                  try {
+                    await supa.storage.from(BUCKET_VANZARI).remove([path]);
+                  } catch (_) {}
+                }
+                toast(
+                  "Eroare la încărcarea documentului: " + err.message,
+                  true,
+                );
+                btn.textContent = "↑ " + label;
+                delete btn.dataset.busy;
+              }
+            });
+            input.click();
+          });
+        });
       }
 
       function bindVanzareButoane(produse, refresh) {
@@ -13039,7 +13170,7 @@
     <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg fade-in my-auto relative">
       <button type="button" id="vanzare-produs-close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-xl leading-none" title="Închide">✕</button>
       <h2 class="text-lg font-bold mb-1 pr-6">Vinde produsul ${esc(produs.id_produs)}</h2>
-      <p class="text-sm text-slate-500 mb-5">Completează datele clientului final și încarcă documentele obligatorii.</p>
+      <p class="text-sm text-slate-500 mb-5">Completează datele clientului final. Documentele (factură, P.V.) pot fi încărcate acum sau ulterior.</p>
       <form id="form-vanzare-produs" class="space-y-4">
         <div>${fieldLabel("Nume Prenume")}<input type="text" id="vanzare-client-nume" required class="${inputBase()}"></div>
         <div>${fieldLabel("Adresă")}<input type="text" id="vanzare-client-adresa" required class="${inputBase()}"></div>
@@ -13051,9 +13182,9 @@
           <input type="checkbox" id="vanzare-garantie-extinsa" class="rounded border-slate-300">
           Garanție extinsă
         </label>
-        <div>${fieldLabel("Factură")}<input type="file" id="vanzare-file-factura" required accept="application/pdf,image/*" class="${inputBase()} text-slate-600"></div>
-        <div>${fieldLabel("P.V. de predare")}<input type="file" id="vanzare-file-pv" required accept="application/pdf,image/*" class="${inputBase()} text-slate-600"></div>
-        <div id="vanzare-garantie-file-wrap" class="hidden">${fieldLabel("Garanție extinsă (document)")}<input type="file" id="vanzare-file-garantie" accept="application/pdf,image/*" class="${inputBase()} text-slate-600"></div>
+        <div>${fieldLabel("Factură")}<input type="file" id="vanzare-file-factura" accept="${ACCEPT_DOCUMENTE_VANZARE}" class="${inputBase()} text-slate-600"></div>
+        <div>${fieldLabel("P.V. de predare")}<input type="file" id="vanzare-file-pv" accept="${ACCEPT_DOCUMENTE_VANZARE}" class="${inputBase()} text-slate-600"></div>
+        <div id="vanzare-garantie-file-wrap" class="hidden">${fieldLabel("Garanție extinsă (document)")}<input type="file" id="vanzare-file-garantie" accept="${ACCEPT_DOCUMENTE_VANZARE}" class="${inputBase()} text-slate-600"></div>
         <div class="flex justify-center pt-1">
           <button type="submit" class="btn-primary rounded-lg py-2.5 px-10 text-sm">Salvează vânzarea</button>
         </div>
@@ -13096,14 +13227,16 @@
               "vanzare-file-garantie",
             ).files[0];
 
-            if (!fileFactura || !filePv) {
-              msg.textContent = "Factura și P.V. de predare sunt obligatorii.";
-              msg.className = "text-sm text-center text-red-600";
-              return;
-            }
-            if (garantieBifata && !fileGarantie) {
-              msg.textContent =
-                "Ai bifat Garanție extinsă — încarcă și documentul aferent.";
+            const eroareFisier = [
+              fileFactura,
+              filePv,
+              garantieBifata ? fileGarantie : null,
+            ]
+              .filter(Boolean)
+              .map(validareFisierVanzare)
+              .find(Boolean);
+            if (eroareFisier) {
+              msg.textContent = eroareFisier;
               msg.className = "text-sm text-center text-red-600";
               return;
             }
@@ -13112,23 +13245,19 @@
             submitBtn.textContent = "Se salvează...";
             msg.textContent = "";
 
+            const caiIncarcate = [];
+            const incarcaOpt = async (fisier, tip) => {
+              if (!fisier) return null;
+              const cale = await incarcaDocumentVanzare(produs.id, fisier, tip);
+              caiIncarcate.push(cale);
+              return cale;
+            };
+
             try {
-              const facturaPath = await incarcaDocumentVanzare(
-                produs.id,
-                fileFactura,
-                "factura",
-              );
-              const pvPath = await incarcaDocumentVanzare(
-                produs.id,
-                filePv,
-                "pv_predare",
-              );
+              const facturaPath = await incarcaOpt(fileFactura, "factura");
+              const pvPath = await incarcaOpt(filePv, "pv_predare");
               const garantiePath = garantieBifata
-                ? await incarcaDocumentVanzare(
-                    produs.id,
-                    fileGarantie,
-                    "garantie_extinsa",
-                  )
+                ? await incarcaOpt(fileGarantie, "garantie_extinsa")
                 : null;
 
               const { error } = await supa
@@ -13166,6 +13295,11 @@
               overlay.remove();
               if (typeof refresh === "function") refresh();
             } catch (err) {
+              if (caiIncarcate.length) {
+                try {
+                  await supa.storage.from(BUCKET_VANZARI).remove(caiIncarcate);
+                } catch (_) {}
+              }
               msg.textContent = "Eroare la salvarea vânzării: " + err.message;
               msg.className = "text-sm text-center text-red-600";
               submitBtn.disabled = false;
@@ -13184,7 +13318,10 @@
       }
 
       function bindDeschideDocumenteVanzare(container) {
+        bindIncarcareDocumenteVanzare(container);
         container.querySelectorAll("[data-doc-path]").forEach((link) => {
+          if (link.dataset.bound) return;
+          link.dataset.bound = "1";
           link.addEventListener("click", async (e) => {
             e.preventDefault();
             const path = link.getAttribute("data-doc-path");
@@ -13243,9 +13380,9 @@
     <td class="px-3 py-3 text-xs text-slate-500">${esc(p.client_email || "—")}</td>
     <td class="px-3 py-3 text-xs text-slate-500 adresa-cell" style="max-width:220px" title="${esc(p.client_adresa || "")}"><span class="adresa-clamp">${esc(p.client_adresa || "—")}</span></td>
     <td class="px-3 py-3 text-xs space-x-2">
-      ${documentLinkHtml(p.factura_url, "Factură")}
-      ${documentLinkHtml(p.pv_predare_url, "P.V.")}
-      ${documentLinkHtml(p.garantie_extinsa_url, "Garanție")}
+      ${documentSlotHtml(p, "factura_url", "factura", "Factură", "Încarcă factura")}
+      ${documentSlotHtml(p, "pv_predare_url", "pv_predare", "P.V.", "Încarcă P.V. de predare")}
+      ${p.garantie_extinsa_url || p.garantie_extinsa ? documentSlotHtml(p, "garantie_extinsa_url", "garantie_extinsa", "Garanție", "Încarcă documentul de garanție extinsă") : documentLinkHtml(null, "Garanție")}
     </td>
     <td class="px-3 py-3 text-xs">
       ${cicluInfo ? `<button type="button" data-istoric-vanzare-produs="${p.id}" class="text-xs font-medium text-slate-500 hover:text-[var(--teal-dark)] underline decoration-dotted">Istoric</button>` : `<span class="text-slate-300">—</span>`}
